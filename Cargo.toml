@@ -6,3 +6,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+anyhow = "1.0.82"
+candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.6.0", features = ["cuda"] }
+candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "0.6.0", features = ["cuda"] }
+candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.6.0", features = ["cuda"] }
+hf-hub = "0.3.2"
+log = "0.4.21"
+once_cell = "1.19.0"
+tokenizers = "0.19.1"
+tokio = { version = "1.35.1", features = ["full"] }
+tokio-tungstenite = "0.21.0"
+serde_any = "0.5.0" # JSON for parsing wss messages
+serde = { version = "1.0", features = ["derive"] }
+dotenv = "0.15.0"
