@@ -6,6 +6,8 @@ use anyhow::Result;
 mod ws;
 mod config;
 mod logging;
+mod llm;
+mod protocol;
 
 #[tokio::main]
 async fn main() -> Result<()> {
