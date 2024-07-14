@@ -1,8 +1,8 @@
-use super::{embedding::Embed, inferance::Infer, tokenize::Tokenize};
+use super::{embedding::Embed, inferance::Infer, template::Template, tokenize::Tokenize};
 
 
 
-pub trait LanguageModel: Tokenize + Infer {
+pub trait LanguageModel: Tokenize + Template + Infer {
     fn prompt(&self, task: String) -> String;
 }
 
