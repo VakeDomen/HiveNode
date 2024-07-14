@@ -21,9 +21,7 @@ pub fn connect_to_hive() -> Result<()> {
             display_message(&msg);
         }
     }
-    // socket.close(None);
 }
-
 
 fn display_connection(response: &Response<Option<Vec<u8>>>) -> () {
     info!("************* Established connection: {} *************", response.status());

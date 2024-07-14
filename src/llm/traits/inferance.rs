@@ -1,10 +1,11 @@
 use anyhow::Result;
 use candle_core::Device;
-use candle_transformers::models::quantized_llama::ModelWeights;
+
+use crate::llm::models::core::token::Token;
 
 
 pub trait Infer {
-    fn infer(file_path: &str, device: &Device) -> Result<ModelWeights>;
+    fn infer(&self, tokens: &Vec<Token>, device: &Device) -> Result<Token>;
 }
 
 
