@@ -5,7 +5,7 @@ use crate::ws::messages::variants::{
         authentication::Authentication, response_embed::ResponseEmbed,
         response_prompt::ResponsePrompt, response_prompt_token::ResponsePromptToken,
     },
-    bidirectional::error::Error,
+    bidirectional::error::ErrorMessage,
 };
 
 
@@ -19,7 +19,7 @@ pub enum IncommingMessageType {
 
 #[derive(Debug, Serialize)]
 pub enum OutgoingMessageType {
-    Authenitcation,
+    Authentication,
     ResponseEmbed,
     ResponsePrompt,
     ResponsePromptToken,
@@ -32,7 +32,7 @@ pub enum OutgoingMessageType {
 pub enum IncommingMessageBody {
     SubmitEmbed(SubmitEmbed),
     SubmitPrompt(SubmitPrompt),
-    Error(Error),
+    Error(ErrorMessage),
 }
 
 #[derive(Debug, Serialize)]
@@ -42,5 +42,5 @@ pub enum OutgoingMessageBody {
     ResponseEmbed(ResponseEmbed),
     ResponsePrompt(ResponsePrompt),
     ResponsePromptToken(ResponsePromptToken),
-    Error(Error),
+    Error(ErrorMessage),
 }

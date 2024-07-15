@@ -25,12 +25,12 @@ async fn main() -> Result<()> {
     };
 
 
-    let mut model = Llama3_8b::try_from(llama3_config)?;
+    // let mut model = Llama3_8b::try_from(llama3_config)?;
 
-    let prompt = model.tokenize("What is your purpouse?".into())?;
+    // let prompt = model.tokenize("What is your purpouse?".into())?;
     
-    let resp = model.infer(&prompt)?;
-    println!("{resp}");
+    // let resp = model.infer(&prompt)?;
+    // println!("{resp}");
     let _ = connect_to_hive();
     Ok(())
 }

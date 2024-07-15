@@ -2,7 +2,7 @@ use anyhow::Result;
 use log::info;
 use tokio_tungstenite::tungstenite::{connect, http::Response, Message};
 
-use crate::config::{HIVE_CORE_URL, VERBOSE_SOCKETS};
+use crate::{config::{HIVE_CORE_URL, VERBOSE_SOCKETS}, ws::messages::message::OutgoingMessage};
 
 pub fn connect_to_hive() -> Result<()> {
     let (mut socket, response) = match connect(&*HIVE_CORE_URL) {
@@ -14,7 +14,8 @@ pub fn connect_to_hive() -> Result<()> {
         display_connection(&response);
     }
 
-    socket.send(Message::Text("{\"type\": \"Authentication\",\"body\": {\"token\": \"token\", \"HW\": [{ \"GPU_model\": \"nvidia 1080ti\", \"GPU_VRAM\": 800, \"driver\": \"vidia.476\", \"CUDA\": \"9.2\"},{ \"GPU_model\": \"nvidia 1080ti\", \"GPU_VRAM\": 800, \"driver\": \"vidia.476\", \"CUDA\": \"9.2\"} ]} }".into())).unwrap();
+    let _ = socket.send(OutgoingMessage::default().try_into()?);
+    // socket.send(Ou).unwrap();
     loop {
         let msg = socket.read().expect("Error reading message");
         if *VERBOSE_SOCKETS {
