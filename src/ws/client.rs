@@ -1,15 +1,42 @@
 use anyhow::Result;
 use log::{error, info};
 use tokio::{net::TcpStream, sync::mpsc::{self, Sender}};
-use tokio_tungstenite::{connect_async, tungstenite::{http::Response, Error, Message}, WebSocketStream};
+use tokio_tungstenite::{
+    connect_async, 
+    tungstenite::{http::Response, Error, Message}, 
+    WebSocketStream
+};
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
-
-use crate::{config::{HIVE_CORE_URL, VERBOSE_SOCKETS}, managers::protocol_manager::ProtocolManager, ws::messages::message::OutgoingMessage};
-
-use super::messages::{message::IncommingMessage, message_type::{OutgoingMessageBody, OutgoingMessageType}, variants::bidirectional::error::ErrorMessage};
+use crate::{
+    config::{HIVE_CORE_URL, VERBOSE_SOCKETS}, 
+    managers::protocol_manager::ProtocolManager, 
+    ws::messages::message::OutgoingMessage
+};
+use super::messages::{
+    message::IncommingMessage, 
+    message_type::{OutgoingMessageBody, OutgoingMessageType}, 
+    variants::bidirectional::error::ErrorMessage
+};
 
 
 type OutSocket = SplitSink<WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>, Message>;
+
+
+
+//                 |                 APPLICATION 
+//  ___            |     __________               ___
+// | w |      WS   |    |          |     MPSC    | p |
+// | s |  ---------=----=->[parse]-=-----------> | r |  
+// |   |           |    |    |     |             | o |
+// | s |           |    |    |     |             | t |
+// | e |           |    |    |MPSC |             | o |
+// | r |           |    |    |     |             |   |
+// | v |           |    |    |     |             | M |
+// | e |      WS   |    |    v     |     MPSC    | a |
+// | r |  <--------=----=[respond]<=------------ | n |
+// |___|           |    |__________|             |___|
+//                 |       CLIENT
+
 
 pub async fn connect_to_hive() -> Result<()> {
     let (socket, response) = match connect_async(&*HIVE_CORE_URL).await {
@@ -85,7 +112,7 @@ async fn send_error_to_server(code: u32, message: String, channel: &Sender<Outgo
 async fn send_message_to_server(
     message: OutgoingMessage, 
     socket_connection: &mut OutSocket,
-) -> () {
+) {
     match message.try_into() {
         Ok(message) => {
             if let Err(e) = socket_connection.send(message).await {
@@ -96,7 +123,7 @@ async fn send_message_to_server(
     }
 }
 
-fn display_connection(response: &Response<Option<Vec<u8>>>) -> () {
+fn display_connection(response: &Response<Option<Vec<u8>>>) {
     info!("************* Established connection: {} *************", response.status());
     info!("SERVER: {}", *HIVE_CORE_URL);
     info!("HEADERS:");
@@ -106,7 +133,7 @@ fn display_connection(response: &Response<Option<Vec<u8>>>) -> () {
     info!("******************************************************\n");
 }
 
-fn display_message(message: &Message) -> () {
+fn display_message(message: &Message) {
     info!("****************** Received message ******************");
     info!("BODY:");
     info!("{message}");

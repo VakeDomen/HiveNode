@@ -1,4 +1,3 @@
-use std::marker::PhantomData;
 
 use log::error;
 use tokio::sync::mpsc::{Receiver, Sender};

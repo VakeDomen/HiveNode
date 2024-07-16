@@ -1,6 +1,6 @@
 use candle_transformers::models::quantized_llama::MAX_SEQ_LEN;
 use dotenv::dotenv;
-use llm::{models::{core::config::ModelConfig, llama3_8b::Llama3_8b, utils::loader::load_device}, traits::{inferance::Infer, tokenize::Tokenize}};
+use llm::{models::{core::config::ModelConfig, utils::loader::load_device}};
 use logging::logger::init_logging;
 use ws::client::connect_to_hive;
 use anyhow::Result;
@@ -16,7 +16,7 @@ async fn main() -> Result<()> {
     dotenv().ok();
     init_logging()?;
 
-    let llama3_config = ModelConfig { 
+    let _llama3_config = ModelConfig { 
         model_path: "./models/llama3-8b/Meta-Llama-3-8B-Instruct.Q5_K_M.gguf".into(), 
         tokenizer_path: "./models/llama3-8b/tokenizer.json".into(), 
         device: load_device(Some(0)), 

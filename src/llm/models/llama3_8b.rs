@@ -77,7 +77,7 @@ impl Infer for Llama3_8b {
 
 
 impl LanguageModel for Llama3_8b {
-    fn prompt(&self, task: String) -> String {
+    fn prompt(&self, _task: String) -> String {
         todo!()
     }
 }

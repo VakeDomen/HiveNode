@@ -55,7 +55,7 @@ pub trait Infer: Tokenize + Template {
         let mut logits_processor = self.setup_logit_procesing();
         let mut next_token = if !SPLIT_PROPMT {
             // Generate response in a single batch if not splitting.
-            let input = Tensor::new(prompt_tokens.as_slice(), &self.get_device())?.unsqueeze(0)?;
+            let input = Tensor::new(prompt_tokens.as_slice(), self.get_device())?.unsqueeze(0)?;
             let logits = self.forward(&input, 0)?;
             let logits = logits.squeeze(0)?;
             logits_processor.sample(&logits)?
@@ -63,7 +63,7 @@ pub trait Infer: Tokenize + Template {
             // Generate response token by token if splitting.
             let mut next_token = 0;
             for (pos, token) in prompt_tokens.iter().enumerate() {
-                let input = Tensor::new(&[*token], &self.get_device())?.unsqueeze(0)?;
+                let input = Tensor::new(&[*token], self.get_device())?.unsqueeze(0)?;
                 let logits = self.forward(&input, pos)?;
                 let logits = logits.squeeze(0)?;
                 next_token = logits_processor.sample(&logits)?
@@ -82,7 +82,7 @@ pub trait Infer: Tokenize + Template {
 
         let mut sampled = 0;
         for index in 0..to_sample {
-            let input = Tensor::new(&[next_token], &self.get_device())?.unsqueeze(0)?;
+            let input = Tensor::new(&[next_token], self.get_device())?.unsqueeze(0)?;
             let logits = self.forward(&input, prompt_tokens.len() + index)?;
             let logits = logits.squeeze(0)?;
             let logits = if REPEAT_PENALTY == 1. {

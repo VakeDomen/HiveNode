@@ -1,7 +1,12 @@
 use serde::{Deserialize, Serialize};
 use tokio_tungstenite::tungstenite::Message;
 use anyhow::Result;
-use super::{message_type::{IncommingMessageBody, IncommingMessageType, OutgoingMessageBody, OutgoingMessageType}, variants::{self, bidirectional::error::ErrorMessage, outgoing::authentication::Authentication}};
+use super::message_type::{
+    IncommingMessageBody, 
+    IncommingMessageType, 
+    OutgoingMessageBody, 
+    OutgoingMessageType
+};
 
 
 #[derive(Debug, Deserialize)]
@@ -38,15 +43,5 @@ impl TryInto<Message> for OutgoingMessage {
 
     fn try_into(self) -> Result<Message> {
         Ok(Message::Text(serde_json::to_string(&self)?))
-    }
-}
-
-impl Default for OutgoingMessage {
-    fn default() -> Self {
-        Self { 
-            message_type: OutgoingMessageType::Authentication, 
-            task_id: Default::default(), 
-            body: OutgoingMessageBody::Authentication(Authentication::default()) 
-        }
     }
 }
