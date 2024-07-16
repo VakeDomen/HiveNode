@@ -53,27 +53,19 @@ async fn recieve_message_form_socket(
             // let incoming_message = process_incoming_message(message);
             let message_content = match socket_message {
                 Message::Text(message_content) => message_content,
-                _ => {
-                    send_error_to_server(0, "Can't parse message type".into(), server_channel).await;
-                    return
-                }
+                _ => return send_error_to_server(0, "Can't parse message type".into(), server_channel).await,
             };
 
             let parsed_message: IncommingMessage =  match serde_json::from_str(&message_content) {
                 Ok(message) => message,
-                Err(e) => {
-                    send_error_to_server(0, format!("Failed while parsing message: {}", e), server_channel).await;
-                    return
-                },
+                Err(e) => return send_error_to_server(0, format!("Failed while parsing message: {}", e), server_channel).await,
             };
+
             if let Err(e) = protocol_manager_channel.send(parsed_message).await {
                 send_error_to_server(0, format!("Failed passing message to protocol: {}", e), server_channel).await;
             }
-            
         }
-        Err(e) => {
-            eprintln!("Error reading message: {}", e);
-        }
+        Err(e) => error!("Error reading message: {}", e),
     }
 }
 
@@ -93,7 +85,7 @@ async fn send_error_to_server(code: u32, message: String, channel: &Sender<Outgo
 async fn send_message_to_server(
     message: OutgoingMessage, 
     socket_connection: &mut OutSocket,
-) {
+) -> () {
     match message.try_into() {
         Ok(message) => {
             if let Err(e) = socket_connection.send(message).await {

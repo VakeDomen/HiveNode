@@ -1,6 +1,7 @@
 pub mod incomming {
     pub mod submit_embed;
     pub mod submit_prompt;
+    pub mod load_models;
 }
 
 pub mod outgoing {

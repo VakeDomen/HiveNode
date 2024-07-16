@@ -9,13 +9,13 @@ use super::{message_type::{IncommingMessageBody, IncommingMessageType, OutgoingM
 pub struct IncommingMessage {
     
     #[serde(rename = "type")]
-    message_type: IncommingMessageType,
+    pub message_type: IncommingMessageType,
     
     #[serde(rename = "taskId")]
-    task_id: String,
+    pub task_id: String,
     
     #[serde(flatten)]
-    body: IncommingMessageBody
+    pub body: IncommingMessageBody
 
 }
 
@@ -24,12 +24,12 @@ pub struct IncommingMessage {
 pub struct OutgoingMessage {
     
     #[serde(rename = "type")]
-    pub(crate) message_type: OutgoingMessageType,
+    pub message_type: OutgoingMessageType,
     
-    pub(crate) task_id: String,
+    pub task_id: String,
     
     #[serde(flatten)]
-    pub(crate) body: OutgoingMessageBody
+    pub body: OutgoingMessageBody
 }
 
 
