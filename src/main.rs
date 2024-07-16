@@ -9,7 +9,7 @@ mod ws;
 mod config;
 mod logging;
 mod llm;
-mod protocol;
+mod managers;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -31,6 +31,6 @@ async fn main() -> Result<()> {
     
     // let resp = model.infer(&prompt)?;
     // println!("{resp}");
-    let _ = connect_to_hive();
+    let _ = connect_to_hive().await;
     Ok(())
 }
