@@ -59,14 +59,14 @@ pub async fn connect_to_hive() -> Result<()> {
 
     loop {
         tokio::select! {
-            Some(msg) = read_ws.next() => recieve_message_form_socket(msg, &out_channel, &to_manager_sender).await,
+            Some(msg) = read_ws.next() => recieve_message_form_server(msg, &out_channel, &to_manager_sender).await,
             Some(msg) = to_ws_reciever.recv() => send_message_to_server(msg, &mut write_ws).await
         }
     }
 }
 
 
-async fn recieve_message_form_socket(
+async fn recieve_message_form_server(
     message_result: Result<Message, Error>, 
     server_channel: &Sender<OutgoingMessage>,
     protocol_manager_channel: &Sender<IncommingMessage>,
