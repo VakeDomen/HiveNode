@@ -2,7 +2,7 @@
 use log::error;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::ws::messages::{message::{IncommingMessage, OutgoingMessage}, message_type::IncommingMessageType};
+use crate::{managers::errors::ProtocolError, ws::messages::{message::{IncommingMessage, OutgoingMessage}, message_type::IncommingMessageType}};
 
 #[derive(Debug, PartialEq)]
 pub enum State {
@@ -41,12 +41,29 @@ impl ProtocolManager {
             match self.reciever.recv().await {
                 Some(message) => self.handle_incomming_message(message),
                 None => {
-                    error!("Unknown message when recieving a message with protocol manager");
+                    let _ = self.send_message_to_server(
+                        ProtocolError::BadRequest("Unknown message when recieving a message with protocol manager".into()).into()
+                    ).await;
                     continue;
                 },
             }
         }
     }    
+
+    async fn send_message_to_server(
+        &self,
+        message: OutgoingMessage, 
+    ) {
+        match message.try_into() {
+            Ok(message) => {
+                if let Err(e) = self.sender.send(message).await {
+                    eprintln!("Error sending message: {}", e);
+                }
+            }
+            Err(e) => error!("Failed sending message to the server: {}", e),
+        }
+    }
+    
     
     
     fn handle_incomming_message(&mut self, message: IncommingMessage) {
