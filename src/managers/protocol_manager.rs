@@ -3,7 +3,7 @@ use dashmap::DashMap;
 use log::{error, info};
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::{managers::errors::ProtocolError, ws::messages::{message::{IncommingMessage, OutgoingMessage}, message_type::{IncommingMessageBody, IncommingMessageType, OutgoingMessageBody, OutgoingMessageType}, variants::{bidirectional::{error::ErrorMessage, success::SuccessMessage}, incomming::{load_models::LoadModels, submit_embed::SubmitEmbed, submit_prompt::SubmitPrompt}, outgoing::response_load_model::ResponseLoadModel}}};
+use crate::{managers::errors::ProtocolError, ws::messages::{message::{IncommingMessage, OutgoingMessage}, message_type::{IncommingMessageBody, OutgoingMessageBody, OutgoingMessageType}, variants::{incomming::{load_models::LoadModels, submit_embed::SubmitEmbed, submit_prompt::SubmitPrompt}, outgoing::response_load_model::ResponseLoadModel}}};
 
 use super::model_manager::ModelManager;
 
@@ -52,11 +52,9 @@ impl ProtocolManager {
     async fn handle_incomming_message(&mut self, message: IncommingMessage) {
         let task_id = message.task_id.clone();
         match self.state {
-            State::Offline => match message.body {
-                _ => self.reject_incomming_message().await,
-            },
+            State::Offline => self.reject_incomming_message().await,
             State::Unauthenticated => match message.body {
-                IncommingMessageBody::Success(message) => self.handle_successfull_authentication().await,
+                IncommingMessageBody::Success(_message) => self.handle_successfull_authentication().await,
                 _ => self.reject_incomming_message().await,
             },
             State::Authenticated => match message.body {
@@ -116,14 +114,13 @@ impl ProtocolManager {
             }).await;
             self.models.insert(manager.get_id(), manager);
         }
-
     }
     
-    async fn handle_embedding_request(&self, message: SubmitEmbed) {
+    async fn handle_embedding_request(&self, _message: SubmitEmbed) {
         todo!()
     }
     
-    async fn handle_prompt_request(&self, message: SubmitPrompt) {
+    async fn handle_prompt_request(&self, _message: SubmitPrompt) {
         todo!()
     }
 

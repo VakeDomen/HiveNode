@@ -2,7 +2,7 @@ use candle_core::{Device, Tensor};
 use candle_transformers::models::quantized_llama::ModelWeights;
 use anyhow::Result;
 use tokenizers::Tokenizer;
-use crate::llm::traits::template::{Template, TemplatedPrompt, EOS};
+use crate::llm::traits::template::{Template, TemplatedPrompt, Eos};
 use crate::llm::traits::{inferance::Infer, model::LanguageModel, tokenize::Tokenize};
 use super::core::config::ModelConfig;
 use super::utils::loader::{load_gguf_content, load_tokenizer};
@@ -45,7 +45,7 @@ impl Template for Llama3_8b {
         )
     }
     
-    fn get_eos(&self) -> EOS {
+    fn get_eos(&self) -> Eos {
         "<|eot_id|>".to_owned()
     }
 }

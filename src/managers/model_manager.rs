@@ -1,4 +1,4 @@
-use crate::{llm::{models::core::config::{ModelConfig, ModelConfigPublic}, traits::model::Model}, ws::messages::{message::OutgoingMessage, message_type::OutgoingMessageType, variants::incomming::load_models::RequestModelConfig}};
+use crate::{llm::{models::core::config::{ModelConfig, ModelConfigPublic}, traits::model::Model}, ws::messages::{variants::incomming::load_models::RequestModelConfig}};
 use anyhow::Result;
 use uuid::Uuid;
 

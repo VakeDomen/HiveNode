@@ -1,4 +1,4 @@
-use crate::{llm::models::{core::config::{ModelConfig, ModelIdentifier}, llama3_8b::Llama3_8b}, ws::messages::variants::incomming::load_models::RequestModelConfig};
+use crate::llm::models::{core::config::{ModelConfig, ModelIdentifier}, llama3_8b::Llama3_8b};
 
 use super::{embedding::Embed, inferance::Infer, template::Template, tokenize::Tokenize};
 use anyhow::Result;

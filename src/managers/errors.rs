@@ -6,10 +6,10 @@ pub enum ProtocolError {
     UnableToLoadModel(anyhow::Error),
 }
 
-impl Into<OutgoingMessage> for ProtocolError {
-    fn into(self) -> OutgoingMessage {
+impl From<ProtocolError> for OutgoingMessage {
+    fn from(val: ProtocolError) -> Self {
 
-        let (code, message) = match self {
+        let (code, message) = match val {
             ProtocolError::BadRequest(message) => (0, message),
             ProtocolError::UnableToLoadModel(e) => (422, e.to_string()),
         };

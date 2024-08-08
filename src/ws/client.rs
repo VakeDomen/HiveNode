@@ -2,7 +2,7 @@ use std::thread;
 
 use anyhow::Result;
 use log::{error, info};
-use tokio::{net::TcpStream, runtime::Runtime, sync::mpsc::{self, Sender}, task::LocalSet};
+use tokio::{net::TcpStream, runtime::Runtime, sync::mpsc::{self, Sender}};
 use tokio_tungstenite::{
     connect_async, 
     tungstenite::{http::Response, Error, Message}, 

@@ -35,7 +35,7 @@ impl TryFrom<&String> for ModelIdentifier {
     fn try_from(name: &String) -> Result<Self> {
         match name.as_str() {
             "llama3_8b" => Ok(ModelIdentifier::Llama3_8b),
-            _ => return Err(anyhow::anyhow!("Unknown model identifier: {:?}", name)),
+            _ => Err(anyhow::anyhow!("Unknown model identifier: {:?}", name)),
         }
     }
 }
