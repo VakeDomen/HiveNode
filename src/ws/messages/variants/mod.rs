@@ -9,8 +9,10 @@ pub mod outgoing {
     pub mod response_embed;
     pub mod response_prompt;
     pub mod response_prompt_token;
+    pub mod response_load_model;
 }
 
 pub mod bidirectional {
     pub mod error;
+    pub mod success;
 }

@@ -1,13 +1,13 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct Authentication {
     pub token: String,
     #[serde(rename = "HW")]
     pub hardware: Vec<GPU>,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct GPU {
 
     #[serde(rename = "GPU_model")]

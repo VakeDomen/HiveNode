@@ -3,15 +3,15 @@ use crate::ws::messages::{message::OutgoingMessage, message_type::{OutgoingMessa
 
 pub enum ProtocolError {
     BadRequest(String),
+    UnableToLoadModel(anyhow::Error),
 }
-
-
 
 impl Into<OutgoingMessage> for ProtocolError {
     fn into(self) -> OutgoingMessage {
 
         let (code, message) = match self {
             ProtocolError::BadRequest(message) => (0, message),
+            ProtocolError::UnableToLoadModel(e) => (422, e.to_string()),
         };
 
 

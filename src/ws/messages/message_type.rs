@@ -7,11 +7,12 @@ use crate::ws::messages::variants::{
     },
     bidirectional::error::ErrorMessage,
 };
-use super::variants::incomming::load_models::LoadModels;
+use super::variants::{bidirectional::success::SuccessMessage, incomming::load_models::LoadModels, outgoing::response_load_model::ResponseLoadModel};
 
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 pub enum IncommingMessageType {
+    Success,
     LoadModels,
     SubmitEmbed,
     SubmitPrompt,
@@ -19,8 +20,9 @@ pub enum IncommingMessageType {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", untagged)]
 pub enum IncommingMessageBody {
+    Success(SuccessMessage),
     LoadModels(LoadModels),
     SubmitEmbed(SubmitEmbed),
     SubmitPrompt(SubmitPrompt),
@@ -34,6 +36,7 @@ pub enum OutgoingMessageType {
     ResponseEmbed,
     ResponsePrompt,
     ResponsePromptToken,
+    ResponseLoadModel,
     Error,
 }
 
@@ -41,6 +44,7 @@ pub enum OutgoingMessageType {
 #[serde(rename_all = "camelCase")]
 pub enum OutgoingMessageBody {
     Authentication(Authentication),
+    ResponseLoadModel(ResponseLoadModel),
     ResponseEmbed(ResponseEmbed),
     ResponsePrompt(ResponsePrompt),
     ResponsePromptToken(ResponsePromptToken),

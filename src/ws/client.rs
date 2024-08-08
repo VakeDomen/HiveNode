@@ -1,6 +1,8 @@
+use std::thread;
+
 use anyhow::Result;
 use log::{error, info};
-use tokio::{net::TcpStream, sync::mpsc::{self, Sender}};
+use tokio::{net::TcpStream, runtime::Runtime, sync::mpsc::{self, Sender}, task::LocalSet};
 use tokio_tungstenite::{
     connect_async, 
     tungstenite::{http::Response, Error, Message}, 
@@ -52,10 +54,15 @@ pub async fn connect_to_hive() -> Result<()> {
     let (to_ws_sender, mut to_ws_reciever) = mpsc::channel::<OutgoingMessage>(100);
     let (mut write_ws, mut read_ws) = socket.split();
     let out_channel = to_ws_sender.clone();
-    let _ = tokio::spawn(async move {
-        let pm = ProtocolManager::new(to_ws_sender, to_manager_reciever);
-        pm.start().await;
+
+    let _ = thread::spawn(move || {
+        let rt = Runtime::new().unwrap();
+        rt.block_on(async move {
+            let pm = ProtocolManager::new(to_ws_sender, to_manager_reciever);
+            pm.start().await;
+        });
     });
+
 
     loop {
         tokio::select! {

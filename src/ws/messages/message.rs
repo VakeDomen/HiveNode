@@ -19,7 +19,8 @@ pub struct IncommingMessage {
     #[serde(rename = "taskId")]
     pub task_id: String,
     
-    #[serde(flatten)]
+    #[serde(rename = "body")]
+    // #[serde(flatten)]
     pub body: IncommingMessageBody
 
 }
