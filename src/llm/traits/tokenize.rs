@@ -3,7 +3,6 @@ use tokenizers::Tokenizer;
 use crate::llm::models::core::token::Token;
 
 pub trait Tokenize {
-
     fn tokenizer(&self) -> &Tokenizer;
     fn tokenize(&self, data: String) -> Result<Vec<Token>> {
         let encoding = self
