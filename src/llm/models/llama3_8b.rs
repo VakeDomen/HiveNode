@@ -4,9 +4,6 @@ use anyhow::Result;
 use tokenizers::Tokenizer;
 use crate::llm::traits::template::{Template, TemplatedPrompt, Eos};
 use crate::llm::traits::{inferance::Infer, model::LanguageModel, tokenize::Tokenize};
-use crate::managers::errors::ModelManagerError;
-use crate::ws::messages::message::IncommingMessage;
-use crate::ws::messages::message_type::IncommingMessageBody;
 use super::core::config::ModelConfig;
 use super::utils::loader::{load_gguf_content, load_tokenizer};
 
@@ -61,6 +58,8 @@ impl Tokenize for Llama3_8b {
 }
 
 impl Infer for Llama3_8b {
+
+    
     fn get_max_sample_len(&self) -> usize {
         self.max_sample_len
     }
@@ -76,20 +75,11 @@ impl Infer for Llama3_8b {
     fn forward(&mut self, input: &Tensor, position: usize) -> Result<Tensor> {
         Ok(self.model.forward(input, position)?)
     }
-}
-
-
-impl LanguageModel for Llama3_8b {
-    fn prompt(&mut self, task: IncommingMessage) -> Result<String> {
-        let body = match task.body {
-            IncommingMessageBody::SubmitPrompt(b) => b,
-            _ => return Err(ModelManagerError::InvalidModelAction(task.task_id).into()),
-        };
-
-        let prompt = self.prompt_template(&body.system_mesage, &body.prompt);
-        let tokenized_prompt = self.tokenize(prompt)?;
-        let response = self.infer(&tokenized_prompt)?;
-        println!("RES: {}", response);
-        Ok(response)
+    
+    fn get_model_name(&self) -> String {
+        "Llama3_8b".to_string()
     }
 }
+
+
+impl LanguageModel for Llama3_8b {}

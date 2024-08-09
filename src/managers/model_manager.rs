@@ -84,9 +84,10 @@ impl Manager for ModelManager {
             return ;
         }
 
+        let sender = self.get_sender_mut().clone();
         let _  = match message.message_type {
             IncommingMessageType::SubmitEmbed => todo!(),
-            IncommingMessageType::SubmitPrompt => self.model.prompt(message),
+            IncommingMessageType::SubmitPrompt => self.model.prompt(message, sender),
             _ => return self.reject_message(message).await,
         };
         
