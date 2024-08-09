@@ -10,7 +10,7 @@ use crate::ws::messages::variants::{
 use super::variants::{bidirectional::success::SuccessMessage, incomming::load_models::LoadModels, outgoing::response_load_model::ResponseLoadModel};
 
 
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Clone)]
 pub enum IncommingMessageType {
     Success,
     LoadModels,
@@ -19,7 +19,7 @@ pub enum IncommingMessageType {
     Error,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase", untagged)]
 pub enum IncommingMessageBody {
     Success(SuccessMessage),

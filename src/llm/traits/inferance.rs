@@ -1,9 +1,11 @@
 use anyhow::Result;
 use candle_core::{Device, Tensor};
 use candle_transformers::generation::{LogitsProcessor, Sampling};
+use tokio::sync::mpsc::Sender;
 use crate::config::{REPEAT_LAST_N, REPEAT_PENALTY, SEED, SPLIT_PROPMT, TEMPERATURE, TOP_K, TOP_P};
 use crate::llm::models::core::token::Token;
 use crate::llm::models::core::tokenizer::TokenOutputStream;
+use crate::ws::messages::message::OutgoingMessage;
 
 use super::template::Template;
 use super::tokenize::Tokenize;
@@ -41,7 +43,7 @@ pub trait Infer: Tokenize + Template {
         }
     }
 
-    fn infer(&mut self, prompt_tokens: &Vec<Token>) -> Result<String> {
+    fn infer(&mut self, prompt_tokens: &Vec<Token>, sender: Sender<OutgoingMessage>) -> Result<String> {
         let mut response_chunks = vec![];
         let mut tos = TokenOutputStream::new(self.tokenizer().clone());
         let to_sample = self.get_max_sample_len().saturating_sub(1);
@@ -72,6 +74,11 @@ pub trait Infer: Tokenize + Template {
         };
         all_tokens.push(next_token);
         
+        // Collect chunks of the generated response.
+        if let Some(token) = tos.next_token(next_token)? {
+            response_chunks.push(token);
+        }
+
 
         // Continue generating tokens until the sample length is reached or an end-of-sentence token is encountered.
         let eos_token = *tos

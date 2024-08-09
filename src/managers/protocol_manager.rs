@@ -5,7 +5,7 @@ use dashmap::DashMap;
 use log::{error, info};
 use tokio::{runtime::Runtime, sync::mpsc::{self, Receiver, Sender}};
 
-use crate::{llm::models::core::config::ModelConfig, managers::errors::ProtocolError, ws::messages::{message::{self, IncommingMessage, OutgoingMessage}, message_type::{IncommingMessageBody, OutgoingMessageBody, OutgoingMessageType}, variants::{incomming::{load_models::LoadModels, submit_embed::SubmitEmbed, submit_prompt::SubmitPrompt}, outgoing::response_load_model::ResponseLoadModel}}};
+use crate::{llm::models::core::config::ModelConfig, managers::errors::ProtocolError, ws::messages::{message::{self, IncommingMessage, OutgoingMessage}, message_type::{IncommingMessageBody, IncommingMessageType, OutgoingMessageBody, OutgoingMessageType}, variants::{incomming::{load_models::LoadModels, submit_embed::SubmitEmbed, submit_prompt::SubmitPrompt}, outgoing::response_load_model::ResponseLoadModel}}};
 
 use super::{manager::{Manager, State}, model_manager::ModelManager};
 
@@ -36,7 +36,7 @@ pub struct ProtocolManager {
 
 impl Manager for ProtocolManager {
     async fn start(&mut self) {
-        if self.state != State::Offline {
+        if *self.get_state() != State::Offline {
             error!("Protocol manager already running.");
             return;
         }
@@ -75,19 +75,22 @@ impl Manager for ProtocolManager {
     async fn handle_incomming_message(&mut self, message: IncommingMessage) {
         let task_id = message.task_id.clone();
         match self.state {
-            State::Offline => self.reject_incomming_message().await,
+            State::Offline => self.reject_incomming_message(message).await,
             State::Unauthenticated => match message.body {
                 IncommingMessageBody::Success(_message) => self.handle_successfull_authentication().await,
-                _ => self.reject_incomming_message().await,
+                _ => self.reject_incomming_message(message).await,
             },
             State::Authenticated => match message.body {
                 IncommingMessageBody::LoadModels(message) => self.handle_load_models(message, task_id).await,
-                _ => self.reject_incomming_message().await,
+                _ => self.reject_incomming_message(message).await,
             },
-            State::Ready => match message.body {
-                IncommingMessageBody::SubmitEmbed(message) => self.handle_embedding_request(message).await,
-                IncommingMessageBody::SubmitPrompt(message) => self.handle_prompt_request(message).await,
-                _ => self.reject_incomming_message().await,
+            State::Ready => match message.message_type {
+                IncommingMessageType::SubmitEmbed => self.handle_embedding_request(message).await,
+                IncommingMessageType::SubmitPrompt => self.handle_prompt_request(message).await,
+                _ => self.reject_incomming_message(message).await,
+                
+                // IncommingMessageBody::SubmitEmbed(message) => 
+                // IncommingMessageBody::SubmitPrompt(message) => 
             },
         };
     }
@@ -108,9 +111,9 @@ impl ProtocolManager {
 
     
 
-    async fn reject_incomming_message(&mut self) {
+    async fn reject_incomming_message(&mut self, message: IncommingMessage) {
         let error_message = format!("The node does not allow the request in this state: {:?}", self.state);
-        self.handle_outgoing_message(ProtocolError::BadRequest(error_message).into()).await
+        self.handle_outgoing_message(ProtocolError::BadRequest(error_message, message.task_id).into()).await
     }
     
     
@@ -123,11 +126,12 @@ impl ProtocolManager {
         
         for model_config in models_to_load.model.into_iter() {
             let (to_model_sender, to_model_reciever) = mpsc::channel::<IncommingMessage>(100);
-            let model_config = match ModelConfig::try_from(model_config) {
+            let model_config = match ModelConfig::try_from((model_config, task_id.clone())) {
                 Ok(c) => c,
-                Err(e) => return self.handle_outgoing_message(ProtocolError::UnableToLoadModel(e.into()).into()).await,
+                Err(e) => return self.handle_outgoing_message(ProtocolError::UnableToLoadModel(e.into(), task_id).into()).await,
             };
         
+            let task_id_movable = task_id.clone();
             let id = model_config.id.clone();
             let sender = self.protocol_sender.clone();
             let error_sender = self.protocol_sender.clone();
@@ -141,7 +145,7 @@ impl ProtocolManager {
                     )) {
                         Ok(mm) => mm,
                         Err(e) => {
-                            return error_sender.send(ProtocolError::UnableToLoadModel(e.into()).into()).await
+                            return error_sender.send(ProtocolError::UnableToLoadModel(e.into(), task_id_movable).into()).await
                         },
                     };
                     manager.start().await;
@@ -159,25 +163,37 @@ impl ProtocolManager {
         }
     }
     
-    async fn handle_embedding_request(&self, _message: SubmitEmbed) {
+    async fn handle_embedding_request(&self, _message: IncommingMessage) {
         todo!()
     }
     
-    async fn handle_prompt_request(&mut self, message: SubmitPrompt) {
+    async fn handle_prompt_request(&mut self, message: IncommingMessage) {
+        let body = match &message.body {
+            IncommingMessageBody::SubmitPrompt(b) => b.clone(),
+            _ => return,
+        };
+        let task_id = message.task_id.clone();
         let mut model_not_found = false;
+        let mut cant_reach_model = false;
         {
-            let model_handler = self.models.get_mut(&message.model_id);
+            let model_handler = self.models.get_mut(&body.model_id);
         
-            if let None = model_handler {
-                model_not_found = true;
-            }
+            match model_handler {
+                None => model_not_found = true,
+                Some(m) => {
+                    if let Err(_) = m.send(message).await {
+                       cant_reach_model = true
+                    };
+                },
+            } 
         } 
         if model_not_found {
-
-           return self.handle_outgoing_message(ProtocolError::ModelNotFound.into()).await;
+           return self.handle_outgoing_message(ProtocolError::ModelNotFound(task_id.clone()).into()).await;
         } 
-        // let model_handler = model_handler.unwrap();
-        // model_handler.value_mut().prompt(message, )
+
+        if cant_reach_model {
+            return self.handle_outgoing_message(ProtocolError::CantReachModel(task_id).into()).await;
+        } 
     }
 
 }

@@ -1,11 +1,11 @@
 
-use crate::{llm::{models::core::config::{ModelConfig, ModelConfigPublic}, traits::model::Model}, ws::messages::{message::{IncommingMessage, OutgoingMessage}, variants::incomming::load_models::RequestModelConfig}};
+use crate::{llm::{models::core::config::{ModelConfig, ModelConfigPublic}, traits::model::Model}, ws::messages::{message::{IncommingMessage, OutgoingMessage}, message_type::{IncommingMessageType, OutgoingMessageBody, OutgoingMessageType}, variants::{incomming::load_models::RequestModelConfig, outgoing::response_load_model::ResponseLoadModel}}};
 use anyhow::Result;
 use log::{error, info};
 use tokio::sync::mpsc::{Receiver, Sender};
 use uuid::Uuid;
 use manager::State;
-use super::manager::{self, Manager};
+use super::{errors::{ModelManagerError, ProtocolError}, manager::{self, Manager}};
 
 pub struct ModelManager {
     state: State,
@@ -34,19 +34,29 @@ impl TryFrom<(ModelConfig, Sender<OutgoingMessage>, Receiver<IncommingMessage>)>
 
 impl Manager for ModelManager {
     async fn start(&mut self) {
-        // fig = manager.get_loaded_config();
-            // self.send_message(OutgoingMessage {
-            //     message_type: OutgoingMessageType::ResponseLoadModel,
-            //     task_id: task_id.clone(),
-            //     body: OutgoingMessageBody::ResponseLoadModel(ResponseLoadModel {
-            //         handler_id: manager.get_id(),
-            //         config,
-            //     }),
-            // }).await;
+        if *self.get_state() != State::Offline {
+            error!("Protocol manager already running.");
+            return;
+        }
 
-        self.set_state(State::Ready);
+        if !self.set_state(State::Ready) {
+            return;
+        }
+        
+        self.handle_outgoing_message(OutgoingMessage {
+            message_type: OutgoingMessageType::ResponseLoadModel,
+            task_id: self.model_config.request_packet_id.clone(),
+            body: OutgoingMessageBody::ResponseLoadModel(ResponseLoadModel {
+                handler_id: self.get_id(),
+                config: self.get_loaded_config(),
+            }),
+        }).await;
+
+        
         loop {
-            
+            tokio::select! {
+                Some(message) = self.get_reciever_mut().recv() => self.handle_incomming_message(message).await,
+            } 
         }
     }
 
@@ -69,7 +79,17 @@ impl Manager for ModelManager {
     }
 
     async fn handle_incomming_message(&mut self, message: IncommingMessage) {
-        todo!()
+        if *self.get_state() != State::Ready {
+            self.handle_outgoing_message(ModelManagerError::ModelNotReady(message.task_id).into()).await;
+            return ;
+        }
+
+        let _  = match message.message_type {
+            IncommingMessageType::SubmitEmbed => todo!(),
+            IncommingMessageType::SubmitPrompt => self.model.prompt(message),
+            _ => return self.reject_message(message).await,
+        };
+        
     }
 }
 
@@ -93,5 +113,10 @@ impl ModelManager {
     fn change_state(&mut self, new_state: State) {
         info!("[Model manager] Changing state: {:?}", new_state);
         self.state = new_state;
+    }
+    
+    async fn reject_message(&mut self, message: IncommingMessage) {
+        let error_message = format!("The model manager does not allow the request in this state: {:?}", self.state);
+        self.handle_outgoing_message(ProtocolError::BadRequest(error_message, message.task_id).into()).await
     }
 }

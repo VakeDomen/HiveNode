@@ -11,6 +11,7 @@ use crate::{llm::models::utils::loader::load_device, ws::messages::variants::inc
 #[derive(Debug, Clone)]
 pub struct ModelConfig {
     pub id: String,
+    pub request_packet_id: String,
     pub model_name: String,
     pub model_path: String,
     pub tokenizer_path: String,
@@ -52,10 +53,11 @@ impl From<&ModelConfig> for ModelConfigPublic {
     }
 }
 
-impl TryFrom<RequestModelConfig> for ModelConfig {
+impl TryFrom<(RequestModelConfig, String)> for ModelConfig {
     type Error = anyhow::Error;
 
-    fn try_from(settings: RequestModelConfig) -> Result<Self> {
+    fn try_from(settings: (RequestModelConfig, String)) -> Result<Self> {
+        let (settings, request_packet_id) = settings;
         let RequestModelConfig { model_name, device, max_sample_len  } = settings;
         let model = ModelIdentifier::try_from(&model_name)?;
         let (model_path, tokenizer_path) = get_model_file_paths(&model);
@@ -68,6 +70,7 @@ impl TryFrom<RequestModelConfig> for ModelConfig {
             device: load_device(Some(device)),
             max_sample_len,
             max_seq_len,
+            request_packet_id,
         })
     }
 }

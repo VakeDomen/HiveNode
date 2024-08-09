@@ -4,6 +4,9 @@ use anyhow::Result;
 use tokenizers::Tokenizer;
 use crate::llm::traits::template::{Template, TemplatedPrompt, Eos};
 use crate::llm::traits::{inferance::Infer, model::LanguageModel, tokenize::Tokenize};
+use crate::managers::errors::ModelManagerError;
+use crate::ws::messages::message::IncommingMessage;
+use crate::ws::messages::message_type::IncommingMessageBody;
 use super::core::config::ModelConfig;
 use super::utils::loader::{load_gguf_content, load_tokenizer};
 
@@ -37,7 +40,7 @@ impl TryFrom<ModelConfig> for Llama3_8b {
 }
 
 impl Template for Llama3_8b {
-    fn prompt_template(&self, system_msg: String, user_message: String) -> TemplatedPrompt {
+    fn prompt_template(&self, system_msg: &String, user_message: &String) -> TemplatedPrompt {
         format!(
             "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{}<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n", 
             system_msg,
@@ -77,7 +80,16 @@ impl Infer for Llama3_8b {
 
 
 impl LanguageModel for Llama3_8b {
-    fn prompt(&self, _task: String) -> String {
-        todo!()
+    fn prompt(&mut self, task: IncommingMessage) -> Result<String> {
+        let body = match task.body {
+            IncommingMessageBody::SubmitPrompt(b) => b,
+            _ => return Err(ModelManagerError::InvalidModelAction(task.task_id).into()),
+        };
+
+        let prompt = self.prompt_template(&body.system_mesage, &body.prompt);
+        let tokenized_prompt = self.tokenize(prompt)?;
+        let response = self.infer(&tokenized_prompt)?;
+        println!("RES: {}", response);
+        Ok(response)
     }
 }
