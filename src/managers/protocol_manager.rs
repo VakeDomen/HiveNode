@@ -1,52 +1,75 @@
 
+use std::thread;
+
 use dashmap::DashMap;
 use log::{error, info};
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::{runtime::Runtime, sync::mpsc::{self, Receiver, Sender}};
 
-use crate::{managers::errors::ProtocolError, ws::messages::{message::{IncommingMessage, OutgoingMessage}, message_type::{IncommingMessageBody, OutgoingMessageBody, OutgoingMessageType}, variants::{incomming::{load_models::LoadModels, submit_embed::SubmitEmbed, submit_prompt::SubmitPrompt}, outgoing::response_load_model::ResponseLoadModel}}};
+use crate::{llm::models::core::config::ModelConfig, managers::errors::ProtocolError, ws::messages::{message::{self, IncommingMessage, OutgoingMessage}, message_type::{IncommingMessageBody, OutgoingMessageBody, OutgoingMessageType}, variants::{incomming::{load_models::LoadModels, submit_embed::SubmitEmbed, submit_prompt::SubmitPrompt}, outgoing::response_load_model::ResponseLoadModel}}};
 
-use super::model_manager::ModelManager;
+use super::{manager::{Manager, State}, model_manager::ModelManager};
 
-#[derive(Debug, PartialEq)]
-pub enum State {
-    Offline,
-    Unauthenticated,
-    Authenticated,
-    Ready,
-}
+
+//  ___             __________              
+// | C |    MSPC   |          |     MPSC    __________________
+// | L |---------->|          |----------->| MODEL MANAGER 1 |  
+// | I |           |          |<-----------|_________________|
+// | E |           | PROTOCOL |     MPSC    __________________
+// | N |           | MANAGER  |----------->| MODEL MANAGER 2 |               
+// | T |           |          |<-----------|_________________|             
+// |   |    MSPC   |          |     MPSC    __________________
+// |   |<----------|          |----------->| MODEL MANAGER N |  
+// |___|           |__________|<-----------|_________________|             
+//                     
+//                     
+
+
 
 pub struct ProtocolManager {
-    sender: Sender<OutgoingMessage>,
-    reciever: Receiver<IncommingMessage>,
+    client_sender: Sender<OutgoingMessage>, // here we send messages to cliet to send to HiveCore
+    client_reciever: Receiver<IncommingMessage>, // here we listen to messages send to client from HiveCore
     state: State,
-    models: DashMap<String, ModelManager>
+    protocol_sender: Sender<OutgoingMessage>, // here we send messages to protocol managers (to pass to newly created managers)
+    protocol_reciever: Receiver<OutgoingMessage>, // here we listen to messages from model managers
+    models: DashMap<String, Sender<IncommingMessage>>
 }
 
-impl ProtocolManager {
-    pub fn new(sender: Sender<OutgoingMessage>, reciever: Receiver<IncommingMessage>) -> Self {
-        Self {
-            sender,
-            reciever,
-            state: State::Offline,
-            models: DashMap::new(),
-        }
-    }
-
-    pub async fn start(mut self) {
+impl Manager for ProtocolManager {
+    async fn start(&mut self) {
         if self.state != State::Offline {
             error!("Protocol manager already running.");
             return;
         }
 
-        self.change_state(State::Unauthenticated);
+        if !self.set_state(State::Unauthenticated) {
+            return;
+        }
 
         loop {
-            match self.reciever.recv().await {
-                Some(message) => self.handle_incomming_message(message).await,
-                None => self.reject_incomming_message().await,
+            tokio::select! {
+                Some(message) = self.protocol_reciever.recv() => self.handle_outgoing_message(message).await,
+                Some(message) = self.client_reciever.recv() => self.handle_incomming_message(message).await
             }
         }
-    }    
+    }
+
+    fn get_state(&self) -> &State {
+        &self.state
+    }
+
+    fn set_state(&mut self, new_state: State) -> bool {
+        info!("[Protocl manager] Changing state: {:?}", new_state);
+        self.state = new_state;
+        true
+    }
+
+    fn get_reciever_mut(&mut self) -> &mut Receiver<IncommingMessage> {
+        &mut self.client_reciever
+    }
+
+    fn get_sender_mut(&mut self) -> &mut Sender<OutgoingMessage> {
+        &mut self.client_sender
+    }
 
     // PROTOCOL
     async fn handle_incomming_message(&mut self, message: IncommingMessage) {
@@ -68,51 +91,71 @@ impl ProtocolManager {
             },
         };
     }
+}
 
-    async fn send_message_to_server(
-        &self,
-        message: OutgoingMessage, 
-    ) {
-        match message.try_into() {
-            Ok(message) => {
-                if let Err(e) = self.sender.send(message).await {
-                    eprintln!("Error sending message: {}", e);
-                }
-            }
-            Err(e) => error!("Failed sending message to the server: {}", e),
+impl ProtocolManager {
+    pub fn new(client_sender: Sender<OutgoingMessage>, client_reciever: Receiver<IncommingMessage>) -> Self {
+        let (to_protocol_sender, to_protocol_reciever) = mpsc::channel::<OutgoingMessage>(100);
+        Self {
+            client_sender,
+            client_reciever,
+            state: State::Offline,
+            models: DashMap::new(),
+            protocol_sender: to_protocol_sender,
+            protocol_reciever: to_protocol_reciever,
         }
     }
 
+    
+
     async fn reject_incomming_message(&mut self) {
         let error_message = format!("The node does not allow the request in this state: {:?}", self.state);
-        self.send_message_to_server(ProtocolError::BadRequest(error_message).into()).await
+        self.handle_outgoing_message(ProtocolError::BadRequest(error_message).into()).await
     }
     
     
     
     async fn handle_successfull_authentication(&mut self) {
-        self.change_state(State::Authenticated);
+        self.set_state(State::Authenticated);
     }
     
     async fn handle_load_models(&mut self, models_to_load: LoadModels, task_id: String) {
-        for model_to_load in models_to_load.model.into_iter() {
-            let manager = match ModelManager::try_from(model_to_load) {
-                Ok(mm) => mm,
-                Err(e) => {
-                    self.send_message_to_server(ProtocolError::UnableToLoadModel(e).into()).await;
-                    continue;
-                },
+        
+        for model_config in models_to_load.model.into_iter() {
+            let (to_model_sender, to_model_reciever) = mpsc::channel::<IncommingMessage>(100);
+            let model_config = match ModelConfig::try_from(model_config) {
+                Ok(c) => c,
+                Err(e) => return self.handle_outgoing_message(ProtocolError::UnableToLoadModel(e.into()).into()).await,
             };
-            let config = manager.get_loaded_config();
-            self.send_message_to_server(OutgoingMessage {
-                message_type: OutgoingMessageType::ResponseLoadModel,
-                task_id: task_id.clone(),
-                body: OutgoingMessageBody::ResponseLoadModel(ResponseLoadModel {
-                    handler_id: manager.get_id(),
-                    config,
-                }),
-            }).await;
-            self.models.insert(manager.get_id(), manager);
+        
+            let id = model_config.id.clone();
+            let sender = self.protocol_sender.clone();
+            let error_sender = self.protocol_sender.clone();
+            let _ = thread::spawn(move || {
+                let rt = Runtime::new().unwrap();
+                let _ = rt.block_on(async move {
+                    let mut manager = match ModelManager::try_from((
+                        model_config,
+                        sender,
+                        to_model_reciever
+                    )) {
+                        Ok(mm) => mm,
+                        Err(e) => {
+                            return error_sender.send(ProtocolError::UnableToLoadModel(e.into()).into()).await
+                        },
+                    };
+                    manager.start().await;
+                    Ok(())
+                });
+            });
+
+
+            // let con
+            self.models.insert(id, to_model_sender);
+
+        }
+        if !self.models.is_empty() {
+            self.set_state(State::Ready);
         }
     }
     
@@ -120,12 +163,21 @@ impl ProtocolManager {
         todo!()
     }
     
-    async fn handle_prompt_request(&self, _message: SubmitPrompt) {
-        todo!()
+    async fn handle_prompt_request(&mut self, message: SubmitPrompt) {
+        let mut model_not_found = false;
+        {
+            let model_handler = self.models.get_mut(&message.model_id);
+        
+            if let None = model_handler {
+                model_not_found = true;
+            }
+        } 
+        if model_not_found {
+
+           return self.handle_outgoing_message(ProtocolError::ModelNotFound.into()).await;
+        } 
+        // let model_handler = model_handler.unwrap();
+        // model_handler.value_mut().prompt(message, )
     }
 
-    fn change_state(&mut self, new_state: State) {
-        info!("[Protocl manager] Changing state: {:?}", new_state);
-        self.state = new_state;
-    }
 }

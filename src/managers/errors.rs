@@ -4,6 +4,7 @@ use crate::ws::messages::{message::OutgoingMessage, message_type::{OutgoingMessa
 pub enum ProtocolError {
     BadRequest(String),
     UnableToLoadModel(anyhow::Error),
+    ModelNotFound,
 }
 
 impl From<ProtocolError> for OutgoingMessage {
@@ -12,6 +13,7 @@ impl From<ProtocolError> for OutgoingMessage {
         let (code, message) = match val {
             ProtocolError::BadRequest(message) => (0, message),
             ProtocolError::UnableToLoadModel(e) => (422, e.to_string()),
+            ProtocolError::ModelNotFound => (404, "Model identifier not found".to_string()),
         };
 
 

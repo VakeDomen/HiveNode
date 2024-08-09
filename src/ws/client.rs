@@ -11,7 +11,7 @@ use tokio_tungstenite::{
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use crate::{
     config::{HIVE_CORE_URL, VERBOSE_SOCKETS}, 
-    managers::protocol_manager::ProtocolManager, 
+    managers::{manager::Manager, protocol_manager::ProtocolManager}, 
     ws::messages::message::OutgoingMessage
 };
 use super::messages::{
@@ -58,7 +58,7 @@ pub async fn connect_to_hive() -> Result<()> {
     let _ = thread::spawn(move || {
         let rt = Runtime::new().unwrap();
         rt.block_on(async move {
-            let pm = ProtocolManager::new(to_ws_sender, to_manager_reciever);
+            let mut pm = ProtocolManager::new(to_ws_sender, to_manager_reciever);
             pm.start().await;
         });
     });

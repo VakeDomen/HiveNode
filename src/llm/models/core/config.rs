@@ -2,6 +2,7 @@ use candle_core::Device;
 use anyhow::Result;
 use candle_transformers::models::quantized_llama::MAX_SEQ_LEN;
 use serde::Serialize;
+use uuid::Uuid;
 use crate::{llm::models::utils::loader::load_device, ws::messages::variants::incomming::load_models::RequestModelConfig};
 
 
@@ -9,6 +10,7 @@ use crate::{llm::models::utils::loader::load_device, ws::messages::variants::inc
 
 #[derive(Debug, Clone)]
 pub struct ModelConfig {
+    pub id: String,
     pub model_name: String,
     pub model_path: String,
     pub tokenizer_path: String,
@@ -59,6 +61,7 @@ impl TryFrom<RequestModelConfig> for ModelConfig {
         let (model_path, tokenizer_path) = get_model_file_paths(&model);
         let max_seq_len = get_model_max_seq_len(&model);
         Ok(Self {
+            id: Uuid::new_v4().to_string(),
             model_name,
             model_path,
             tokenizer_path,

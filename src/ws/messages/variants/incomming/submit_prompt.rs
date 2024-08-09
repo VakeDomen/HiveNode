@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct SubmitPrompt {
     pub stream: bool,
-    pub model: String,
+    pub model_id: String,
     pub system_mesage: String,
     pub mode: String,
     pub history: Vec<String>,
