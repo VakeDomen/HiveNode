@@ -1,5 +1,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
+use std::thread::sleep;
+use std::time::Duration;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderName, HeaderValue};
 use std::collections::HashMap;
@@ -16,6 +18,12 @@ fn main() -> std::io::Result<()> {
     
 
     loop {
+
+        println!("POLL 1 HIVE");
+        stream.write_all(b"POLL 1 HIVE\r\n")?;
+        stream.flush()?;
+
+
         // Read the length of the incoming message (4 bytes)
         let mut len_buf = [0u8; 4];
         if let Err(e) = stream.read_exact(&mut len_buf) {
@@ -35,19 +43,22 @@ fn main() -> std::io::Result<()> {
         let request_str = String::from_utf8_lossy(&buffer);
 
         // Parse the HTTP request
-        let (method, uri, headers, body) = parse_http_request(&request_str);
-
-        // Send the request to Ollama API and stream the response back
-        if let Err(e) = stream_response_to_java_proxy(&method, &uri, &headers, &body, &mut stream) {
-            println!("Error streaming response: {}", e);
-            break;
+        let (protocol, method, uri, headers, body) = parse_http_request(&request_str);
+        println!("PROTOCOL: {protocol}");
+        if !protocol.eq("HIVE") {
+            // Send the request to Ollama API and stream the response back
+            if let Err(e) = stream_response_to_java_proxy(&method, &uri, &headers, &body, &mut stream) {
+                println!("Error streaming response: {}", e);
+                break;
+            }
         }
+
     }
 
     Ok(())
 }
 
-fn parse_http_request(request: &str) -> (String, String, HashMap<String, String>, String) {
+fn parse_http_request(request: &str) -> (String, String, String, HashMap<String, String>, String) {
     // Same as before
     let mut lines = request.lines();
     let request_line = lines.next().unwrap_or("");
@@ -58,6 +69,7 @@ fn parse_http_request(request: &str) -> (String, String, HashMap<String, String>
     let mut request_parts = request_line.split_whitespace();
     let method = request_parts.next().unwrap_or("").to_string();
     let uri = request_parts.next().unwrap_or("").to_string();
+    let protocol = request_parts.next().unwrap_or("").to_string();
 
     // Parse headers
     for line in &mut lines {
@@ -74,7 +86,7 @@ fn parse_http_request(request: &str) -> (String, String, HashMap<String, String>
     // Read the body
     body = lines.collect::<Vec<&str>>().join("\n");
     println!("{method}\n{uri}\n{:#?}\n{:#?}", headers, body);
-    (method, uri, headers, body)
+    (protocol, method, uri, headers, body)
 }
 
 
