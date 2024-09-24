@@ -114,14 +114,17 @@ fn make_ollama_request(server_location: String, request: &ProxyRequest) -> Resul
 
     // Exclude certain headers when forwarding
     for (key, value) in request.headers.iter() {
-        if let (Ok(header_name), Ok(header_value)) = (
-            HeaderName::from_bytes(key.as_bytes()),
-            HeaderValue::from_str(value),
-        ) {
-            request_builder = request_builder.header(header_name, header_value);
+        let key_lower = key.to_ascii_lowercase();
+        if key_lower != "host" && key_lower != "content-length" {
+            if let (Ok(header_name), Ok(header_value)) = (
+                HeaderName::from_bytes(key.as_bytes()),
+                HeaderValue::from_str(value),
+            ) {
+                request_builder = request_builder.header(header_name, header_value);
+            }
         }
     }
-
+    // Set body
     if !request.body.is_empty() {
         request_builder = request_builder.body(request.body.to_string());
     }

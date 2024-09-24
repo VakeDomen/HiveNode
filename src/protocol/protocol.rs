@@ -6,7 +6,7 @@ use crate::{messages::proxy_request::ProxyRequest, protocol::network_util::{auth
 
 pub fn run_protocol() -> Result<()> {
     // Connect to the Java Proxy Server
-    let mut stream = TcpStream::connect("127.0.0.1:7777")?;
+    let mut stream = TcpStream::connect("prog3.student.famnit.upr.si:7777")?;
     info!("Connected to Java Proxy Server");
 
     let _  = authentiate(&mut stream)?;
