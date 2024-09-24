@@ -1,7 +1,5 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
-use std::thread::sleep;
-use std::time::Duration;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderName, HeaderValue};
 use std::collections::HashMap;
