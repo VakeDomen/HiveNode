@@ -2,7 +2,7 @@ use std::net::TcpStream;
 use anyhow::Result;
 use log::info;
 
-use crate::{messages::proxy_request::ProxyRequest, protocol::functions::{authentiate, poll, read_next_message, read_next_message_length, stream_response_to_java_proxy}};
+use crate::{messages::proxy_request::ProxyRequest, protocol::network_util::{authentiate, poll, read_next_message, read_next_message_length, stream_response_to_java_proxy}};
 
 pub fn run_protocol() -> Result<()> {
     // Connect to the Java Proxy Server

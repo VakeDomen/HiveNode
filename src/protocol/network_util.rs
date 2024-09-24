@@ -68,20 +68,14 @@ fn stream_body(stream: &mut TcpStream, response: Response) -> Result<()> {
             break;
         }
 
-        // Write chunk size in hexadecimal followed by \r\n
         let chunk_size = format!("{:X}\r\n", bytes_read);
         stream.write_all(chunk_size.as_bytes())?;
-        // Write chunk data
         stream.write_all(&chunk)?;
-        // Write \r\n
         stream.write_all(b"\r\n")?;
         stream.flush()?;
     }
-
-    // Write the last chunk (size zero) to signal end of chunks
     stream.write_all(b"0\r\n\r\n")?;
     stream.flush()?;
-
     Ok(())
 }
 
@@ -120,18 +114,14 @@ fn make_ollama_request(server_location: String, request: &ProxyRequest) -> Resul
 
     // Exclude certain headers when forwarding
     for (key, value) in request.headers.iter() {
-        let key_lower = key.to_ascii_lowercase();
-        if key_lower != "host" && key_lower != "content-length" {
-            if let (Ok(header_name), Ok(header_value)) = (
-                HeaderName::from_bytes(key.as_bytes()),
-                HeaderValue::from_str(value),
-            ) {
-                request_builder = request_builder.header(header_name, header_value);
-            }
+        if let (Ok(header_name), Ok(header_value)) = (
+            HeaderName::from_bytes(key.as_bytes()),
+            HeaderValue::from_str(value),
+        ) {
+            request_builder = request_builder.header(header_name, header_value);
         }
     }
 
-    // Set body
     if !request.body.is_empty() {
         request_builder = request_builder.body(request.body.to_string());
     }
