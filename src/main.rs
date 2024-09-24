@@ -1,62 +1,96 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
+use std::thread::sleep;
+use std::time::Duration;
+use log::{error, info, warn};
+use logging::logger::init_logging;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderName, HeaderValue};
 use std::collections::HashMap;
 use std::str;
+use anyhow::Result;
 
 mod config;
+mod logging;
 
-fn main() -> std::io::Result<()> {
-    // Connect to the Java Proxy Server
-    let mut stream = TcpStream::connect("127.0.0.1:7777")?;
-    println!("Connected to Java Proxy Server");
-
-    // Create an HTTP client
-    
+fn main() -> anyhow::Result<()> {
+    let _ = init_logging();
+    let mut reconnect_count = 0;
 
     loop {
+        if let Err(e) = work() {
+            warn!("Connection to proxy ended: {}", e);
+            warn!("Waiting {}s before reconnection.", 10 * reconnect_count);
+        }
+        sleep(Duration::from_secs(10 * reconnect_count));
+        reconnect_count += 1;
+    }
+}
 
-        println!("POLL 1 HIVE");
-        stream.write_all(b"POLL 1 HIVE\r\n")?;
-        stream.flush()?;
+fn work() -> Result<()> {
+    // Connect to the Java Proxy Server
+    let mut stream = TcpStream::connect("127.0.0.1:7777")?;
+    info!("Connected to Java Proxy Server");
 
+    if let Err(e) = authentiate(&mut stream) {
+        error!("Error authenticating to the proxy: {}", e);
+        return Err(e);
+    }
+    
+    loop {
+        // poll for work
+        if let Err(e) = poll(&mut stream) {
+            error!("Error polling the proxy: {}", e);
+            return Err(e);
+        }
 
         // Read the length of the incoming message (4 bytes)
         let mut len_buf = [0u8; 4];
         if let Err(e) = stream.read_exact(&mut len_buf) {
-            println!("Error reading length: {}", e);
-            break;
+            error!("Error reading length: {}", e);
+            return Err(e.into());
         }
         let message_length = i32::from_be_bytes(len_buf) as usize;
 
         // Read the message
         let mut buffer = vec![0u8; message_length];
         if let Err(e) = stream.read_exact(&mut buffer) {
-            println!("Error reading message: {}", e);
-            break;
+            error!("Error reading message: {}", e);
+            return Err(e.into());
         }
 
         // Convert buffer to string
         let request_str = String::from_utf8_lossy(&buffer);
 
         // Parse the HTTP request
-        let (protocol, method, uri, headers, body) = parse_http_request(&request_str);
-        println!("PROTOCOL: {protocol}");
+        let (protocol, method, uri, headers, body) = parse_request(&request_str);
         if !protocol.eq("HIVE") {
             // Send the request to Ollama API and stream the response back
             if let Err(e) = stream_response_to_java_proxy(&method, &uri, &headers, &body, &mut stream) {
-                println!("Error streaming response: {}", e);
-                break;
+                error!("Error streaming response: {}", e);
+                return Err(e);
             }
         }
 
     }
+}
 
+fn authentiate(stream: &mut TcpStream) -> Result<()> {
+    // Create an HTTP client
+    stream.write_all(b"AUTH node-worker-1 HIVE\r\n")?;
+    stream.flush()?;
     Ok(())
 }
 
-fn parse_http_request(request: &str) -> (String, String, String, HashMap<String, String>, String) {
+fn poll(stream: &mut TcpStream) -> Result<()> {
+    // Create an HTTP client
+    stream.write_all(b"POLL mistral-nemo HIVE\r\n")?;
+    stream.flush()?;
+    Ok(())
+}
+
+
+fn parse_request(request: &str) -> (String, String, String, HashMap<String, String>, String) {
     // Same as before
     let mut lines = request.lines();
     let request_line = lines.next().unwrap_or("");
@@ -83,7 +117,12 @@ fn parse_http_request(request: &str) -> (String, String, String, HashMap<String,
 
     // Read the body
     body = lines.collect::<Vec<&str>>().join("\n");
-    println!("{method}\n{uri}\n{:#?}\n{:#?}", headers, body);
+
+    if !protocol.eq("HIVE") && !method.eq("PONG") {
+        info!("Recieved request:\n\tPROTOCOL: {protocol}\n\tMETHOD: {method}\n\tURI: {uri}\n\tHEADERS: {:#?}\n\tBODY: {body}", headers);
+    }
+    
+
     (protocol, method, uri, headers, body)
 }
 
@@ -94,7 +133,7 @@ fn stream_response_to_java_proxy(
     headers: &HashMap<String, String>,
     body: &str,
     stream: &mut TcpStream,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     let ollama_url = format!("http://localhost:11434{}", uri);
     let client = Client::new();
     let mut request_builder = client.request(method.parse().unwrap(), &ollama_url);
