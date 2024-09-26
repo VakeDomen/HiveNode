@@ -3,9 +3,8 @@ use std::time::Duration;
 use dotenv::dotenv;
 use log::warn;
 use logging::logger::init_logging;
-use protocol::protocol::run_protocol;
+use protocol::connection::run_protocol;
 
-mod config;
 mod logging;
 mod messages;
 mod protocol;

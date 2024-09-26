@@ -56,9 +56,11 @@ pub fn stream_response_to_java_proxy(
     let ollama_base_url = env::var("OLLAMA_URL").expect("OLLAMA_URL");
     let ollama_url = format!("{ollama_base_url}{}", request.uri);
     let response = make_ollama_request(ollama_url, &request)?;
-    let _ = write_http_status_line(stream, &response)?;
-    let _ = write_http_headers(stream, &response)?;
-    let _ = stream_body(stream, response)?;
+    
+    write_http_status_line(stream, &response)?;
+    write_http_headers(stream, &response)?;
+    stream_body(stream, response)?;
+    
     Ok(())
 }
 
@@ -114,7 +116,7 @@ fn write_http_status_line(stream: &mut TcpStream, response: &Response) -> Result
  
 fn make_ollama_request(server_location: String, request: &ProxyRequest) -> Result<Response> {
     let client = Client::new();
-    let mut request_builder = client.request(request.method.parse().unwrap(), &server_location);
+    let mut request_builder = client.request(request.method.parse().unwrap(), server_location);
 
     // Exclude certain headers when forwarding
     for (key, value) in request.headers.iter() {

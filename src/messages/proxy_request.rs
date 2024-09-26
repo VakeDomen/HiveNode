@@ -14,7 +14,6 @@ impl From<String> for ProxyRequest {
         let mut lines = raw_request.lines();
         let request_line = lines.next().unwrap_or("");
         let mut headers = HashMap::new();
-        let mut body = String::new();
 
         // Parse method and URI
         let mut request_parts = request_line.split_whitespace();
@@ -35,7 +34,7 @@ impl From<String> for ProxyRequest {
         }
 
         // Read the body
-        body = lines.collect::<Vec<&str>>().join("\n");       
+        let body = lines.collect::<Vec<&str>>().join("\n");       
         Self { protocol, method, uri, headers, body}
     }
 }

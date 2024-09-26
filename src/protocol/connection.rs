@@ -10,11 +10,12 @@ pub fn run_protocol() -> Result<()> {
     let mut stream = TcpStream::connect(proxy_server_url.clone())?;
     info!("Establised connection to HiveCore Proxy Server: {}", proxy_server_url);
 
-    let _  = authentiate(&mut stream)?;
+    authentiate(&mut stream)?;
     
     loop {
         // poll for work
-        let _ = poll(&mut stream)?;
+        poll(&mut stream)?;
+        
         let message_length = read_next_message_length(&mut stream)?;
         let raw_message = read_next_message(&mut stream, message_length)?;
         let request = ProxyRequest::from(raw_message);
@@ -24,7 +25,7 @@ pub fn run_protocol() -> Result<()> {
         }
 
         if !request.protocol.eq("HIVE") {
-            let _ = stream_response_to_java_proxy(request, &mut stream)?;
+            stream_response_to_java_proxy(request, &mut stream)?;
         }
     }
 }
