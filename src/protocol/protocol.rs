@@ -1,4 +1,4 @@
-use std::net::TcpStream;
+use std::{env, net::TcpStream};
 use anyhow::Result;
 use log::info;
 
@@ -6,8 +6,9 @@ use crate::{messages::proxy_request::ProxyRequest, protocol::network_util::{auth
 
 pub fn run_protocol() -> Result<()> {
     // Connect to the Java Proxy Server
-    let mut stream = TcpStream::connect("prog3.student.famnit.upr.si:7777")?;
-    info!("Connected to Java Proxy Server");
+    let proxy_server_url = env::var("HIVE_CORE_URL").expect("HIVE_CORE_URL");
+    let mut stream = TcpStream::connect(proxy_server_url.clone())?;
+    info!("Establised connection to HiveCore Proxy Server: {}", proxy_server_url);
 
     let _  = authentiate(&mut stream)?;
     

@@ -1,3 +1,4 @@
+use std::env;
 use std::net::TcpStream;
 use anyhow::Result;
 use log::error;
@@ -10,8 +11,10 @@ use crate::messages::proxy_request::ProxyRequest;
 
 
 pub fn authentiate(stream: &mut TcpStream) -> Result<()> {
+    let key = env::var("HIVE_KEY").expect("HIVE_KEY");
     // Create an HTTP client
-    stream.write_all(b"AUTH node-worker-1 HIVE\r\n")?;
+    let auth_request = format!("AUTH {key} HIVE\r\n");
+    stream.write_all(auth_request.as_bytes())?;
     stream.flush()?;
     Ok(())
 }
@@ -50,7 +53,8 @@ pub fn stream_response_to_java_proxy(
     request: ProxyRequest,
     stream: &mut TcpStream,
 ) -> Result<()> {
-    let ollama_url = format!("http://localhost:11434{}", request.uri);
+    let ollama_base_url = env::var("OLLAMA_URL").expect("OLLAMA_URL");
+    let ollama_url = format!("{ollama_base_url}{}", request.uri);
     let response = make_ollama_request(ollama_url, &request)?;
     let _ = write_http_status_line(stream, &response)?;
     let _ = write_http_headers(stream, &response)?;

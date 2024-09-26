@@ -1,5 +1,6 @@
 use std::thread::sleep;
 use std::time::Duration;
+use dotenv::dotenv;
 use log::warn;
 use logging::logger::init_logging;
 use protocol::protocol::run_protocol;
@@ -11,6 +12,7 @@ mod protocol;
 
 fn main() -> anyhow::Result<()> {
     let _ = init_logging();
+    let _ = dotenv();
     let mut reconnect_count = 0;
 
     loop {
