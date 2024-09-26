@@ -1,7 +1,7 @@
 use std::env;
 use std::net::TcpStream;
 use anyhow::Result;
-use log::error;
+use log::{error, info};
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderName, HeaderValue};
 use reqwest::blocking::Response;
@@ -26,7 +26,26 @@ pub fn poll(stream: &mut TcpStream) -> Result<()> {
     Ok(())
 }
 
-pub fn read_next_message_length(stream: &mut TcpStream) -> Result<usize> {
+pub fn proxy(mut stream: &mut TcpStream) -> Result<()> {
+    let message_length = read_next_message_length(&mut stream)?;
+        let raw_message = read_next_message(&mut stream, message_length)?;
+        let request = ProxyRequest::from(raw_message);
+
+        match request.protocol.as_str() {
+            "HIVE" => handle_hive_request(request, stream),
+            _ => stream_response_to_java_proxy(request, &mut stream),
+        }
+}
+
+fn handle_hive_request(request: ProxyRequest, stream: &mut TcpStream) -> Result<()> {
+    if !request.method.eq("PONG") {
+        info!("Recieved request: {:#?}", request);
+    }
+    Ok(())
+
+}
+
+fn read_next_message_length(stream: &mut TcpStream) -> Result<usize> {
     let mut len_buf = [0u8; 4];
     if let Err(e) = stream.read_exact(&mut len_buf) {
         error!("Error reading length: {}", e);
@@ -35,7 +54,7 @@ pub fn read_next_message_length(stream: &mut TcpStream) -> Result<usize> {
     Ok(i32::from_be_bytes(len_buf) as usize)
 }
 
-pub fn read_next_message(stream: &mut TcpStream, message_length: usize) -> Result<String> {
+fn read_next_message(stream: &mut TcpStream, message_length: usize) -> Result<String> {
     let mut buffer = vec![0u8; message_length];
     if let Err(e) = stream.read_exact(&mut buffer) {
         error!("Error reading message: {}", e);
@@ -49,7 +68,7 @@ pub fn read_next_message(stream: &mut TcpStream, message_length: usize) -> Resul
 
 
 
-pub fn stream_response_to_java_proxy(
+fn stream_response_to_java_proxy(
     request: ProxyRequest,
     stream: &mut TcpStream,
 ) -> Result<()> {
