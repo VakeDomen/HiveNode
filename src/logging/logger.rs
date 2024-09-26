@@ -17,5 +17,6 @@ impl log::Log for SimpleLogger {
 }
 
 pub fn init_logging() -> Result<(), SetLoggerError> {
+    colog::init();
     log::set_logger(&SimpleLogger).map(|()| log::set_max_level(LevelFilter::Info))
 }
