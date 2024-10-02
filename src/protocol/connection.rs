@@ -2,7 +2,7 @@ use std::{env, net::TcpStream};
 use anyhow::Result;
 use log::info;
 
-use crate::{messages::proxy_request::ProxyRequest, models::{poller::Poller, tags::Tags}, protocol::network_util::{authenticate, make_ollama_request, poll, proxy}};
+use crate::protocol::network_util::{authenticate, create_poller, poll, proxy};
 
 pub fn run_protocol() -> Result<()> {
     
@@ -11,18 +11,16 @@ pub fn run_protocol() -> Result<()> {
     let mut stream = TcpStream::connect(proxy_server_url.clone())?;
     info!("Establised connection to HiveCore Proxy Server: {}", proxy_server_url);
 
-
-    let req = ProxyRequest::new_http_get("/api/tags");
-    let resp = make_ollama_request(&req)?;
-    let tags = Tags::try_from(resp)?;
-    let mut poller = Poller::from(tags);
-
+    let mut poller = create_poller()?;
 
     authenticate(&mut stream)?;
     info!("Succesfully authenticated to the proxy");
     loop {
         poll(&mut stream, poller.next().unwrap())?;
-        proxy(&mut stream)?;
+        let should_refresh = proxy(&mut stream)?;
+        if should_refresh {
+            poller = create_poller()?;
+        }
     }
 }
 

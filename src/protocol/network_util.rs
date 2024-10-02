@@ -8,6 +8,8 @@ use reqwest::blocking::Response;
 use std::io::{BufRead, BufReader, Read, Write};
 
 use crate::messages::proxy_request::ProxyRequest;
+use crate::models::poller::Poller;
+use crate::models::tags::Tags;
 
 
 pub fn authenticate(stream: &mut TcpStream) -> Result<()> {
@@ -19,6 +21,11 @@ pub fn authenticate(stream: &mut TcpStream) -> Result<()> {
     Ok(())
 }
 
+pub fn create_poller() -> Result<Poller> {
+    let tags = get_tags()?;
+    Ok(Poller::from(tags))
+}
+
 pub fn poll(stream: &mut TcpStream, model_name: String) -> Result<()> {
     // Create an HTTP client
     let poll_string = format!("POLL {model_name} HIVE\r\n");
@@ -28,7 +35,7 @@ pub fn poll(stream: &mut TcpStream, model_name: String) -> Result<()> {
     Ok(())
 }
 
-pub fn proxy(mut stream: &mut TcpStream) -> Result<()> {
+pub fn proxy(mut stream: &mut TcpStream) -> Result<bool> {
     let message_length = read_next_message_length(&mut stream)?;
     let raw_message = read_next_message(&mut stream, message_length)?;
     let request = ProxyRequest::from(raw_message);
@@ -39,11 +46,17 @@ pub fn proxy(mut stream: &mut TcpStream) -> Result<()> {
     }
 }
 
-fn handle_hive_request(request: ProxyRequest, _stream: &mut TcpStream) -> Result<()> {
+fn get_tags() -> Result<Tags> {
+    let req = ProxyRequest::new_http_get("/api/tags");
+    let resp = make_ollama_request(&req)?;
+    Ok(Tags::try_from(resp)?)
+}
+
+fn handle_hive_request(request: ProxyRequest, _stream: &mut TcpStream) -> Result<bool> {
     if !request.method.eq("PONG") {
         info!("Recieved request: {:#?}", request);
     }
-    Ok(())
+    Ok(false)
 }
 
 fn read_next_message_length(stream: &mut TcpStream) -> Result<usize> {
@@ -72,7 +85,7 @@ fn read_next_message(stream: &mut TcpStream, message_length: usize) -> Result<St
 fn stream_response_to_java_proxy(
     request: ProxyRequest,
     stream: &mut TcpStream,
-) -> Result<()> {
+) -> Result<bool> {
     info!("Recieved Ollama request.");
     let response = make_ollama_request(&request)?;
     info!("Ollama responded with: {}", response.status());
@@ -83,7 +96,7 @@ fn stream_response_to_java_proxy(
     stream_body(stream, response)?;
     info!("Stream ended. Response done.");
 
-    Ok(())
+    Ok(request.modifies_poll())
 }
 
 fn stream_body(stream: &mut TcpStream, response: Response) -> Result<()> {
@@ -136,7 +149,7 @@ fn write_http_status_line(stream: &mut TcpStream, response: &Response) -> Result
     Ok(())
 }
  
-pub fn make_ollama_request(request: &ProxyRequest) -> Result<Response> {
+fn make_ollama_request(request: &ProxyRequest) -> Result<Response> {
     let ollama_base_url = env::var("OLLAMA_URL").expect("OLLAMA_URL");
     let request_target = format!("{ollama_base_url}{}", request.uri);
     

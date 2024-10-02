@@ -49,4 +49,12 @@ impl ProxyRequest {
             body: "\n".into(),
         }
     }
+    
+    pub fn modifies_poll(&self) -> bool {
+        match (self.protocol.as_str(), self.method.as_str(), self.uri.as_str()) {
+            ("HTTP/1.1", "POST", "/api/pull") => true,
+            ("HTTP/1.1", "DELETE", "/api/delete") => true,
+            (_, _, _) => false,
+        }
+    }
 }
