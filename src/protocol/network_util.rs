@@ -10,7 +10,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use crate::messages::proxy_request::ProxyRequest;
 
 
-pub fn authentiate(stream: &mut TcpStream) -> Result<()> {
+pub fn authenticate(stream: &mut TcpStream) -> Result<()> {
     let key = env::var("HIVE_KEY").expect("HIVE_KEY");
     // Create an HTTP client
     let auth_request = format!("AUTH {key} HIVE\r\n");
@@ -28,21 +28,20 @@ pub fn poll(stream: &mut TcpStream) -> Result<()> {
 
 pub fn proxy(mut stream: &mut TcpStream) -> Result<()> {
     let message_length = read_next_message_length(&mut stream)?;
-        let raw_message = read_next_message(&mut stream, message_length)?;
-        let request = ProxyRequest::from(raw_message);
+    let raw_message = read_next_message(&mut stream, message_length)?;
+    let request = ProxyRequest::from(raw_message);
 
-        match request.protocol.as_str() {
-            "HIVE" => handle_hive_request(request, stream),
-            _ => stream_response_to_java_proxy(request, &mut stream),
-        }
+    match request.protocol.as_str() {
+        "HIVE" => handle_hive_request(request, stream),
+        _ => stream_response_to_java_proxy(request, &mut stream),
+    }
 }
 
-fn handle_hive_request(request: ProxyRequest, stream: &mut TcpStream) -> Result<()> {
+fn handle_hive_request(request: ProxyRequest, _stream: &mut TcpStream) -> Result<()> {
     if !request.method.eq("PONG") {
         info!("Recieved request: {:#?}", request);
     }
     Ok(())
-
 }
 
 fn read_next_message_length(stream: &mut TcpStream) -> Result<usize> {
@@ -72,14 +71,18 @@ fn stream_response_to_java_proxy(
     request: ProxyRequest,
     stream: &mut TcpStream,
 ) -> Result<()> {
+    info!("Recieved Ollama request.");
     let ollama_base_url = env::var("OLLAMA_URL").expect("OLLAMA_URL");
     let ollama_url = format!("{ollama_base_url}{}", request.uri);
     let response = make_ollama_request(ollama_url, &request)?;
+    info!("Ollama responded with: {}", response.status());
     
+    info!("Streaming back response...");
     write_http_status_line(stream, &response)?;
     write_http_headers(stream, &response)?;
     stream_body(stream, response)?;
-    
+    info!("Stream ended. Response done.");
+
     Ok(())
 }
 
