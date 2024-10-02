@@ -38,3 +38,15 @@ impl From<String> for ProxyRequest {
         Self { protocol, method, uri, headers, body}
     }
 }
+
+impl ProxyRequest {
+    pub fn new_http_get(uri: &str) -> Self {
+        Self {
+            protocol: "HTTP/1.1".into(),
+            method: "GET".into(),
+            uri: uri.into(),
+            headers: HashMap::new(),
+            body: "\n".into(),
+        }
+    }
+}

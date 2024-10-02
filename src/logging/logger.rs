@@ -33,7 +33,7 @@ pub fn init_logging() -> Result<(), SetLoggerError> {
     // colog::init();
     let mut builder = colog::basic_builder();
     builder.format(colog::formatter(CustomPrefixToken));
-    builder.filter(None, LevelFilter::Info);
+    builder.filter(None, LevelFilter::Debug);
     builder.init();
     log::set_logger(&SimpleLogger).map(|()| log::set_max_level(LevelFilter::Info))
 }

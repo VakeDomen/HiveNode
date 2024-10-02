@@ -1,7 +1,7 @@
 use std::env;
 use std::net::TcpStream;
-use anyhow::Result;
-use log::{error, info};
+use anyhow::{anyhow, Result};
+use log::{debug, error, info};
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderName, HeaderValue};
 use reqwest::blocking::Response;
@@ -19,9 +19,11 @@ pub fn authenticate(stream: &mut TcpStream) -> Result<()> {
     Ok(())
 }
 
-pub fn poll(stream: &mut TcpStream) -> Result<()> {
+pub fn poll(stream: &mut TcpStream, model_name: String) -> Result<()> {
     // Create an HTTP client
-    stream.write_all(b"POLL mistral-nemo HIVE\r\n")?;
+    let poll_string = format!("POLL {model_name} HIVE\r\n");
+    debug!("Polling: {poll_string}");
+    stream.write_all(poll_string.as_bytes())?;
     stream.flush()?;
     Ok(())
 }
@@ -72,9 +74,7 @@ fn stream_response_to_java_proxy(
     stream: &mut TcpStream,
 ) -> Result<()> {
     info!("Recieved Ollama request.");
-    let ollama_base_url = env::var("OLLAMA_URL").expect("OLLAMA_URL");
-    let ollama_url = format!("{ollama_base_url}{}", request.uri);
-    let response = make_ollama_request(ollama_url, &request)?;
+    let response = make_ollama_request(&request)?;
     info!("Ollama responded with: {}", response.status());
     
     info!("Streaming back response...");
@@ -136,9 +136,17 @@ fn write_http_status_line(stream: &mut TcpStream, response: &Response) -> Result
     Ok(())
 }
  
-fn make_ollama_request(server_location: String, request: &ProxyRequest) -> Result<Response> {
+pub fn make_ollama_request(request: &ProxyRequest) -> Result<Response> {
+    let ollama_base_url = env::var("OLLAMA_URL").expect("OLLAMA_URL");
+    let request_target = format!("{ollama_base_url}{}", request.uri);
+    
+    
+    if request.protocol.eq("HIVE") {
+        return Err(anyhow!("Can't make HIVE requests to Ollama."));
+    }
+    
     let client = Client::new();
-    let mut request_builder = client.request(request.method.parse().unwrap(), server_location);
+    let mut request_builder = client.request(request.method.parse().unwrap(), request_target);
 
     // Exclude certain headers when forwarding
     for (key, value) in request.headers.iter() {

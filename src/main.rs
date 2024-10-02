@@ -8,6 +8,7 @@ use protocol::connection::run_protocol;
 mod logging;
 mod messages;
 mod protocol;
+mod models;
 
 fn main() -> anyhow::Result<()> {
     let _ = init_logging();
