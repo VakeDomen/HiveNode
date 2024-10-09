@@ -1,10 +1,19 @@
 use super::tags::Tags;
 
-
+#[derive(Debug, Clone)]
 pub struct Poller {
     models: Vec<String>,
     index: usize,
     default: String,
+}
+
+impl Poller {
+    pub fn get_models_target(&self) -> String {
+        if self.models.is_empty() {
+            return "/".into();
+        }
+        self.models.join(";")
+    }
 }
 
 impl From<Tags> for Poller {

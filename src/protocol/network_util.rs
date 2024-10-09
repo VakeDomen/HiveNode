@@ -12,10 +12,10 @@ use crate::models::poller::Poller;
 use crate::models::tags::Tags;
 
 
-pub fn authenticate(stream: &mut TcpStream) -> Result<()> {
+pub fn authenticate(stream: &mut TcpStream, nonce: u64) -> Result<()> {
     let key = env::var("HIVE_KEY").expect("HIVE_KEY");
     // Create an HTTP client
-    let auth_request = format!("AUTH {key} HIVE\r\n");
+    let auth_request = format!("AUTH {key};{nonce} HIVE\r\n");
     stream.write_all(auth_request.as_bytes())?;
     stream.flush()?;
     Ok(())
@@ -159,6 +159,7 @@ fn make_ollama_request(request: &ProxyRequest) -> Result<Response> {
     }
     
     let client = Client::new();
+    println!("{:#?}", request);
     let mut request_builder = client.request(request.method.parse().unwrap(), request_target);
 
     // Exclude certain headers when forwarding
