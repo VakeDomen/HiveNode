@@ -29,7 +29,7 @@ pub fn create_poller() -> Result<Poller> {
 pub fn poll(stream: &mut TcpStream, model_name: String) -> Result<()> {
     // Create an HTTP client
     let poll_string = format!("POLL {model_name} HIVE\r\n");
-    debug!("Polling: {poll_string}");
+    // debug!("Polling: {poll_string}");
     stream.write_all(poll_string.as_bytes())?;
     stream.flush()?;
     Ok(())
