@@ -1,7 +1,7 @@
 use std::env;
 use std::net::TcpStream;
 use anyhow::{anyhow, Result};
-use log::{debug, error, info};
+use log::{error, info};
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderName, HeaderValue};
 use reqwest::blocking::Response;
@@ -29,7 +29,6 @@ pub fn create_poller() -> Result<Poller> {
 pub fn poll(stream: &mut TcpStream, model_name: String) -> Result<()> {
     // Create an HTTP client
     let poll_string = format!("POLL {model_name} HIVE\r\n");
-    // debug!("Polling: {poll_string}");
     stream.write_all(poll_string.as_bytes())?;
     stream.flush()?;
     Ok(())
@@ -159,7 +158,6 @@ fn make_ollama_request(request: &ProxyRequest) -> Result<Response> {
     }
     
     let client = Client::new();
-    println!("{:#?}", request);
     let mut request_builder = client.request(request.method.parse().unwrap(), request_target);
 
     // Exclude certain headers when forwarding
