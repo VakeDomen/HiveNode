@@ -21,8 +21,8 @@ pub fn authenticate(stream: &mut TcpStream, nonce: u64) -> Result<()> {
     Ok(())
 }
 
-pub fn create_poller() -> Result<Poller> {
-    let tags = get_tags()?;
+pub fn create_poller(client: &Client) -> Result<Poller> {
+    let tags = get_tags(client)?;
     Ok(Poller::from(tags))
 }
 
@@ -34,20 +34,20 @@ pub fn poll(stream: &mut TcpStream, model_name: String) -> Result<()> {
     Ok(())
 }
 
-pub fn proxy(mut stream: &mut TcpStream) -> Result<bool> {
+pub fn proxy(mut stream: &mut TcpStream, client: &Client) -> Result<bool> {
     let message_length = read_next_message_length(&mut stream)?;
     let raw_message = read_next_message(&mut stream, message_length)?;
     let request = ProxyRequest::from(raw_message);
 
     match request.protocol.as_str() {
         "HIVE" => handle_hive_request(request, stream),
-        _ => stream_response_to_java_proxy(request, &mut stream),
+        _ => stream_response_to_java_proxy(request, &mut stream, client),
     }
 }
 
-fn get_tags() -> Result<Tags> {
+fn get_tags(client: &Client) -> Result<Tags> {
     let req = ProxyRequest::new_http_get("/api/tags");
-    let resp = make_ollama_request(&req)?;
+    let resp = make_ollama_request(&req, client)?;
     Ok(Tags::try_from(resp)?)
 }
 
@@ -84,9 +84,10 @@ fn read_next_message(stream: &mut TcpStream, message_length: usize) -> Result<St
 fn stream_response_to_java_proxy(
     request: ProxyRequest,
     stream: &mut TcpStream,
+    client: &Client,
 ) -> Result<bool> {
     info!("Recieved Ollama request.");
-    let response = make_ollama_request(&request)?;
+    let response = make_ollama_request(&request, client)?;
     info!("Ollama responded with: {}", response.status());
     
     info!("Streaming back response...");
@@ -148,7 +149,7 @@ fn write_http_status_line(stream: &mut TcpStream, response: &Response) -> Result
     Ok(())
 }
  
-fn make_ollama_request(request: &ProxyRequest) -> Result<Response> {
+fn make_ollama_request(request: &ProxyRequest, client: &Client) -> Result<Response> {
     let ollama_base_url = env::var("OLLAMA_URL").expect("OLLAMA_URL");
     let request_target = format!("{ollama_base_url}{}", request.uri);
     
@@ -157,7 +158,7 @@ fn make_ollama_request(request: &ProxyRequest) -> Result<Response> {
         return Err(anyhow!("Can't make HIVE requests to Ollama."));
     }
     
-    let client = Client::new();
+    
     let mut request_builder = client.request(request.method.parse().unwrap(), request_target);
 
     // Exclude certain headers when forwarding
