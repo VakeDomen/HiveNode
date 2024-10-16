@@ -45,7 +45,7 @@ fi
 # Check if ollama is installed; if not, install it
 if ! command -v ollama >/dev/null 2>&1; then
     echo "ollama is not installed. Installing..."
-    curl -fsSL https://ollama.com/install.sh | sh
+    curl -fsSL https://ollama.com/install.sh | sudo sh
 else
     echo "ollama is already installed."
 fi
