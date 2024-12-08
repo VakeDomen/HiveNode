@@ -1,5 +1,5 @@
 use std::{env, net::TcpStream, sync::{Arc, Mutex}};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use log::info;
 use once_cell::sync::Lazy;
 use reqwest::blocking::Client;
@@ -17,8 +17,13 @@ pub fn run_protocol(nonce: u64) -> Result<()> {
 
     let client = Client::new();
 
-    refresh_poll_models(&client)?;
-    authenticate(&mut stream, nonce)?;
+    if let Err(e) = refresh_poll_models(&client) {
+        return Err(anyhow!(format!("Error refreshing avalible models: {}", e)));
+    };
+
+    if let Err(e) = authenticate(&mut stream, nonce) {
+        return Err(anyhow!(format!("Error authenticating: {}", e)));
+    };
 
     info!("Succesfully authenticated to the proxy");
     
@@ -28,8 +33,14 @@ pub fn run_protocol(nonce: u64) -> Result<()> {
             models.clone()
         };
         
-        poll(&mut stream, models)?;
-        let should_refresh = proxy(&mut stream, &client)?;
+        if let Err(e) = poll(&mut stream, models) {
+            return Err(anyhow!(format!("Error polling HiveCore: {}", e)));
+        };
+    
+        let should_refresh = match proxy(&mut stream, &client) {
+            Ok(should_refresh) => should_refresh,
+            Err(e) => return Err(anyhow!(format!("Failed to proxy request: {}", e))),
+        };
 
         if should_refresh {
             refresh_poll_models(&client)?;

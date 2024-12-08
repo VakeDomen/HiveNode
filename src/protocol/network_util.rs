@@ -1,7 +1,7 @@
 use std::env;
 use std::net::TcpStream;
 use anyhow::{anyhow, Result};
-use log::{error, info};
+use log::{error, info, warn};
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderName, HeaderValue};
 use reqwest::blocking::Response;
@@ -41,7 +41,7 @@ pub fn proxy(mut stream: &mut TcpStream, client: &Client) -> Result<bool> {
 
     match request.protocol.as_str() {
         "HIVE" => handle_hive_request(request, stream),
-        _ => stream_response_to_java_proxy(request, &mut stream, client),
+        _ => stream_response_to_proxy(request, &mut stream, client),
     }
 }
 
@@ -53,7 +53,7 @@ fn get_tags(client: &Client) -> Result<Tags> {
 
 fn handle_hive_request(request: ProxyRequest, _stream: &mut TcpStream) -> Result<bool> {
     if !request.method.eq("PONG") {
-        info!("Recieved request: {:#?}", request);
+        info!("Recieved request from HiveCore: {:#?}", request);
     }
     Ok(false)
 }
@@ -61,7 +61,7 @@ fn handle_hive_request(request: ProxyRequest, _stream: &mut TcpStream) -> Result
 fn read_next_message_length(stream: &mut TcpStream) -> Result<usize> {
     let mut len_buf = [0u8; 4];
     if let Err(e) = stream.read_exact(&mut len_buf) {
-        error!("Error reading length: {}", e);
+        error!("Error reading next message length from HiveCore: {}", e);
         return Err(e.into());
     }
     Ok(i32::from_be_bytes(len_buf) as usize)
@@ -70,7 +70,7 @@ fn read_next_message_length(stream: &mut TcpStream) -> Result<usize> {
 fn read_next_message(stream: &mut TcpStream, message_length: usize) -> Result<String> {
     let mut buffer = vec![0u8; message_length];
     if let Err(e) = stream.read_exact(&mut buffer) {
-        error!("Error reading message: {}", e);
+        error!("Error reading message from HiveCore: {}", e);
         return Err(e.into());
     }
 
@@ -81,19 +81,30 @@ fn read_next_message(stream: &mut TcpStream, message_length: usize) -> Result<St
 
 
 
-fn stream_response_to_java_proxy(
+fn stream_response_to_proxy(
     request: ProxyRequest,
     stream: &mut TcpStream,
     client: &Client,
 ) -> Result<bool> {
     info!("Recieved Ollama request.");
     let response = make_ollama_request(&request, client)?;
-    info!("Ollama responded with: {}", response.status());
+    match response.status().as_u16() {
+        200 =>  info!("Ollama responded with: {} | Streaming back response...", response.status()),
+        _ =>  warn!("Ollama responded with: {} | Streaming back response...", response.status()),
+    }
     
-    info!("Streaming back response...");
-    write_http_status_line(stream, &response)?;
-    write_http_headers(stream, &response)?;
-    stream_body(stream, response)?;
+    if let Err(e) = write_http_status_line(stream, &response) {
+        return Err(anyhow!("Error streaming status line to HiveCore: {}", e));
+    }
+
+    if let Err(e) = write_http_headers(stream, &response) {
+        return Err(anyhow!("Error streaming headers to HiveCore: {}", e));
+    }
+
+    if let Err(e) = stream_body(stream, response) {
+        return Err(anyhow!("Error streaming body to HiveCore: {}", e));
+    }
+
     info!("Stream ended. Response done.");
 
     Ok(request.modifies_poll())

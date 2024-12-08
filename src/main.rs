@@ -22,20 +22,19 @@ fn main() -> anyhow::Result<()> {
     
 
     let nonce = rand::random::<u64>();
+    let reconnection_duration_seconds = 10;
 
     let mut handles = vec![];
     for _ in 0..concurrent {
+        
         let movable_nonce = nonce.clone();
         let handle = spawn(move || {
-            let mut reconnect_count = 0;
-
             loop {
                 if let Err(e) = run_protocol(movable_nonce) {
                     error!("Connection to proxy ended: {}", e);
-                    warn!("Waiting {}s before reconnection.", 10 * reconnect_count);
+                    warn!("Waiting {}s before reconnection.", reconnection_duration_seconds);
                 }
-                sleep(Duration::from_secs(10 * reconnect_count));
-                reconnect_count += 1;
+                sleep(Duration::from_secs(reconnection_duration_seconds));
             }
         });
         handles.push(handle);
