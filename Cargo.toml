@@ -16,3 +16,4 @@ rand = "0.8.5"
 reqwest = { version = "0.12.7", default-features = false, features = ["blocking"] }
 serde = { version = "1.0.210", features = ["derive"] }
 serde_json = "1.0.128"
+systemstat = "0.2.3"
