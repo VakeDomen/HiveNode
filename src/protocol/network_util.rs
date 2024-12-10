@@ -26,9 +26,26 @@ pub fn create_poller(client: &Client) -> Result<Poller> {
     Ok(Poller::from(tags))
 }
 
-pub fn poll(stream: &mut TcpStream, model_name: String) -> Result<()> {
-    // Create an HTTP client
-    let poll_string = format!("POLL {model_name} HIVE\r\n");
+pub fn poll(stream: &mut TcpStream, model_name: String, optimized_polling_sequence: &bool) -> Result<()> {
+    
+    // polling with "-" will tell the HiveCore to take the last seen
+    // set of models as the possible tags. The Core will optimize the
+    // sequence in which the models are polled based on the previously 
+    // handled work. 
+    // if the last work was using model X, it will prioratize the model
+    // X work requests to handle. This minimizes the amount of switching
+    // of models in the worker VRAM.
+    // requres the worker to have previously sent the tags to the core,
+    // so that the core has the list to work with
+    // However, polling with X;Y;Z will set the sequence of models in 
+    // which the work is polled
+    let poll_target = if *optimized_polling_sequence {
+        "-".to_string()
+    } else {
+        model_name
+    };
+
+    let poll_string = format!("POLL {poll_target} HIVE\r\n");
     stream.write_all(poll_string.as_bytes())?;
     stream.flush()?;
     Ok(())
