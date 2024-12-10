@@ -1,15 +1,12 @@
 use dotenv::dotenv;
 use futures::prelude::stream;
-use futures::FutureExt;
-use influxdb2::models::DataPoint;
-use influxdb2::Client;
+use influxdb2::{models::DataPoint, Client};
 use log::{error, warn};
 use logging::logger::init_logging;
 use protocol::connection::run_protocol;
 use std::env;
 use std::thread::{sleep, spawn};
 use std::time::Duration;
-use tokio::macros;
 
 mod logging;
 mod messages;
