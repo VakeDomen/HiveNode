@@ -26,16 +26,19 @@ pub fn run_protocol(nonce: u64) -> Result<()> {
     };
 
     info!("Succesfully authenticated to the proxy");
-    
+    let mut has_informed_core_of_tags = false;
+
     loop {
         let models = {
             let models = MODELS.lock().unwrap();
             models.clone()
         };
         
-        if let Err(e) = poll(&mut stream, models) {
+        if let Err(e) = poll(&mut stream, models, &has_informed_core_of_tags) {
             return Err(anyhow!(format!("Error polling HiveCore: {}", e)));
         };
+
+        has_informed_core_of_tags = true;
     
         let should_refresh = match proxy(&mut stream, &client) {
             Ok(should_refresh) => should_refresh,
@@ -43,6 +46,7 @@ pub fn run_protocol(nonce: u64) -> Result<()> {
         };
 
         if should_refresh {
+            has_informed_core_of_tags = false;
             refresh_poll_models(&client)?;
         }
     }
