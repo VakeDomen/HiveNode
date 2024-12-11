@@ -1,5 +1,6 @@
 use dotenv::dotenv;
 use futures::prelude::stream;
+use influxdb2::models::FieldValue;
 use influxdb2::{models::DataPoint, Client};
 use log::{error, warn};
 use logging::logger::init_logging;
@@ -120,12 +121,12 @@ fn start_influx_logging(tokio_handle: Handle) {
 
                 data_points.push(
                     DataPoint::builder("memory")
-                        .field("free", system.free_memory() as i64)
-                        .field("used", system.used_memory() as i64)
-                        .field("total", system.total_memory() as i64)
-                        .field("swap_free", system.free_swap() as i64)
-                        .field("swap_used", system.used_swap() as i64)
-                        .field("swap_total", system.total_swap() as i64),
+                        .field("free", system.free_memory() as f64)
+                        .field("used", system.used_memory() as f64)
+                        .field("total", system.total_memory() as f64)
+                        .field("swap_free", system.free_swap() as f64)
+                        .field("swap_used", system.used_swap() as f64)
+                        .field("swap_total", system.total_swap() as f64),
                 );
 
                 println!("{:?}", data_points.last().unwrap());
