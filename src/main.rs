@@ -4,6 +4,8 @@ use influxdb2::{models::DataPoint, Client};
 use log::{error, warn};
 use logging::logger::init_logging;
 use machine_info::Machine;
+use nvml_wrapper::error::NvmlError;
+use nvml_wrapper::Nvml;
 use protocol::connection::run_protocol;
 use std::env::VarError;
 use std::sync::Arc;
@@ -55,10 +57,34 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+struct Error {
+    message: String,
+}
+
+impl From<VarError> for Error {
+    fn from(value: VarError) -> Self {
+        Self {
+            message: format!("{:?}", value),
+        }
+    }
+}
+impl From<NvmlError> for Error {
+    fn from(value: NvmlError) -> Self {
+        Self {
+            message: format!("{:?}", value),
+        }
+    }
+}
+
 fn start_influx_logging(tokio_handle: Handle) {
     let _ = thread::Builder::new()
         .name("influx_logging".to_string())
-        .spawn(move || -> Result<(), VarError> {
+        .spawn(move || -> Result<(), Error> {
+            let nvml = Nvml::init()?;
+            // Get the first `Device` (GPU) in the system
+            let device = nvml.device_by_index(0)?;
+
+            println!("{:?}", device);
             let mut machine = Machine::new();
             let mut system = System::new_all();
             let host = env::var("INFLUX_HOST")?;
