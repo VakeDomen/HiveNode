@@ -3,7 +3,6 @@ use futures::prelude::stream;
 use influxdb2::{models::DataPoint, Client};
 use log::{error, warn};
 use logging::logger::init_logging;
-use machine_info::Machine;
 use nvml_wrapper::error::NvmlError;
 use nvml_wrapper::Nvml;
 use protocol::connection::run_protocol;
