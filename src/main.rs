@@ -68,11 +68,6 @@ fn start_influx_logging(tokio_handle: Handle) {
             let node_key = env::var("HIVE_KEY").expect("Missing HIVE_KEY variable.");
             loop {
                 let mut data_points = vec![];
-
-                println!("{:?}", machine.system_info());
-                println!("{:?}", machine.system_status());
-                println!("{:?}", machine.graphics_status());
-
                 for gpu_usage in machine.graphics_status() {
                     data_points.extend([DataPoint::builder("gpu")
                         .tag("id", gpu_usage.id)
