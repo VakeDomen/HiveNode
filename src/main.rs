@@ -128,6 +128,8 @@ fn start_influx_logging(tokio_handle: Handle) {
                         .field("swap_total", system.total_swap() as i64),
                 );
 
+                println!("{:?}", data_points.last().unwrap());
+
                 let data: Vec<DataPoint> = data_points
                     .into_iter()
                     .filter_map(|x| x.tag("node", &node_key).build().ok())
