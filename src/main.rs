@@ -81,33 +81,54 @@ fn start_influx_logging(tokio_handle: Handle) {
         .name("influx_logging".to_string())
         .spawn(move || -> Result<(), Error> {
             let nvml = Nvml::init()?;
-            // Get the first `Device` (GPU) in the system
-            let device = nvml.device_by_index(0)?;
-
-            println!("{:?}", device);
-            let mut machine = Machine::new();
             let mut system = System::new_all();
             let host = env::var("INFLUX_HOST")?;
             let org = env::var("INFLUX_ORG")?;
             let token = env::var("INFLUX_TOKEN")?;
             let client = Arc::new(Client::new(host, org, token));
             let node_key = env::var("HIVE_KEY").expect("Missing HIVE_KEY variable.");
+            let total_gpus = nvml.device_count()?;
+
             loop {
                 let mut data_points = vec![];
-                for gpu_usage in machine.graphics_status() {
+
+                for i in 0..total_gpus {
+                    let device = nvml.device_by_index(i)?;
+                    let fan_speed = device.fan_speed(0)?; // Currently 17% on my system
+                    let power_limit = device.enforced_power_limit()?; // 275k milliwatts on my system
+                    let encoder_util = device.encoder_utilization()?; // Currently 0 on my system; Not encoding anything
+                    let memory_info = device.memory_info()?; // Currently 1.63/6.37 GB used on my system
+
                     data_points.extend([DataPoint::builder("gpu")
-                        .tag("id", gpu_usage.id)
-                        .field("memory_usage", gpu_usage.memory_used as f64)
-                        .field("temperature", gpu_usage.temperature as f64)]);
+                        .tag("index", i.to_string())
+                        .field("memory_used", memory_info.used as f64)
+                        .field("memory_free", memory_info.free as f64)
+                        .field("memory_total", memory_info.total as f64)
+                        .field("fan_speed", fan_speed as f64)
+                        .field("power_limit", power_limit as f64)
+                        .field("encoder_util", encoder_util.utilization as f64)
+                        .field("sampling_period", encoder_util.sampling_period as f64)
+                        .field(
+                            "energy_consumption",
+                            device.total_energy_consumption()? as f64,
+                        )]);
                 }
 
-                if let Ok(status) = machine.system_status() {
-                    println!("Status is ok! {:?}", status);
-                    data_points.extend([
-                        DataPoint::builder("cpu").field("usage", status.cpu as i64),
-                        DataPoint::builder("memory").field("used", status.memory as i64),
-                    ]);
+                for cpu in system.cpus() {
+                    data_points
+                        .push(DataPoint::builder("cpu").field("usage", cpu.cpu_usage() as f64));
                 }
+
+                data_points.push(
+                    DataPoint::builder("memory")
+                        .field("free", system.free_memory() as i64)
+                        .field("used", system.used_memory() as i64)
+                        .field("total", system.total_memory() as i64)
+                        .field("swap_free", system.free_swap() as i64)
+                        .field("swap_used", system.used_swap() as i64)
+                        .field("swap_total", system.total_swap() as i64),
+                );
+
                 let data: Vec<DataPoint> = data_points
                     .into_iter()
                     .filter_map(|x| x.tag("node", &node_key).build().ok())
