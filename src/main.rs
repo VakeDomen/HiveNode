@@ -3,10 +3,15 @@ use futures::prelude::stream;
 use influxdb2::{models::DataPoint, Client};
 use log::{error, warn};
 use logging::logger::init_logging;
+use machine_info::Machine;
 use protocol::connection::run_protocol;
-use std::env;
+use std::env::VarError;
+use std::sync::Arc;
 use std::thread::{sleep, spawn};
 use std::time::Duration;
+use std::{env, thread};
+use sysinfo::System;
+use tokio::runtime::Handle;
 
 mod logging;
 mod messages;
@@ -15,24 +20,9 @@ mod protocol;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let bucket = "hivecore";
-    let host = env::var("INFLUX_HOST").expect("Missing INFLUX_HOST variable.");
-    let organisation = env::var("INFLUX_ORG").expect("Missing INFLUX_ORGA variable.");
-    let token = env::var("INFLUX_TOKEN").expect("Missing INFLUX_TOKEN variable.");
-    let client = Client::new(host, organisation, token);
-    for _ in 0..10 {
-        let points = [DataPoint::builder("cpu")
-            .tag("node", "id-1")
-            .field("speed", 100)
-            .build()?];
-
-        client.write(bucket, stream::iter(points)).await?;
-        println!("Sent one!");
-        sleep(Duration::from_millis(100));
-    }
-    return Ok(());
     let _ = init_logging();
     let _ = dotenv();
+    start_influx_logging(Handle::current());
 
     let concurrent = env::var("CONCURRENT_RQEUESTS")
         .expect("CONCURRENT_RQEUESTS")
@@ -65,4 +55,48 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn submit() {}
+fn start_influx_logging(tokio_handle: Handle) {
+    let _ = thread::Builder::new()
+        .name("influx_logging".to_string())
+        .spawn(move || -> Result<(), VarError> {
+            let mut machine = Machine::new();
+            let mut system = System::new_all();
+            let host = env::var("INFLUX_HOST")?;
+            let org = env::var("INFLUX_ORG")?;
+            let token = env::var("INFLUX_TOKEN")?;
+            let client = Arc::new(Client::new(host, org, token));
+            let node_key = env::var("HIVE_KEY").expect("Missing HIVE_KEY variable.");
+            loop {
+                let mut data_points = vec![];
+
+                println!("{:?}", machine.system_info());
+                println!("{:?}", machine.system_status());
+                println!("{:?}", machine.graphics_status());
+
+                for gpu_usage in machine.graphics_status() {
+                    data_points.extend([DataPoint::builder("gpu")
+                        .tag("id", gpu_usage.id)
+                        .field("memory_usage", gpu_usage.memory_used as f64)
+                        .field("temperature", gpu_usage.temperature as f64)]);
+                }
+
+                if let Ok(status) = machine.system_status() {
+                    println!("Status is ok! {:?}", status);
+                    data_points.extend([
+                        DataPoint::builder("cpu").field("usage", status.cpu as i64),
+                        DataPoint::builder("memory").field("used", status.memory as i64),
+                    ]);
+                }
+                let data: Vec<DataPoint> = data_points
+                    .into_iter()
+                    .filter_map(|x| x.tag("node", &node_key).build().ok())
+                    .collect();
+                let clone = client.clone();
+                tokio_handle.spawn(async move {
+                    let _ = clone.write("hivecore", stream::iter(data)).await;
+                });
+                sleep(Duration::from_secs(5));
+                system.refresh_all();
+            }
+        });
+}
