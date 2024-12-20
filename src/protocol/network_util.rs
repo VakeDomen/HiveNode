@@ -134,12 +134,14 @@ fn stream_response_to_proxy(
         return Err(anyhow!("Error streaming body to HiveCore: {}", e));
     }
 
-    if response_code != 200 {
-        if let Ok(data) = String::from_utf8(influx_stream) {
-            let data_point = DataPoint::builder("ollama").field("response", data);
-            log_influx(vec![data_point]);
-        }
-    }
+    // if response_code != 200 {
+    let data_as_string = String::from_utf8(influx_stream);
+    let data_point = match data_as_string {
+        Ok(data) => DataPoint::builder("ollama").field("response", data),
+        Err(x) => DataPoint::builder("ollama").field("utf8_error", x.to_string()),
+    };
+    log_influx(vec![data_point]);
+    // }
 
     info!("Stream ended. Response done.");
 
