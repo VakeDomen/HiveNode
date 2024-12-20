@@ -1,16 +1,18 @@
-use std::env;
-use std::net::TcpStream;
 use anyhow::{anyhow, Result};
+use influxdb2::models::data_point::DataPointBuilder;
+use influxdb2::models::DataPoint;
 use log::{error, info, warn};
 use reqwest::blocking::Client;
-use reqwest::header::{HeaderName, HeaderValue};
 use reqwest::blocking::Response;
+use reqwest::header::{HeaderName, HeaderValue};
+use std::env;
 use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpStream;
 
+use crate::logging::log_influx;
 use crate::messages::proxy_request::ProxyRequest;
 use crate::models::poller::Poller;
 use crate::models::tags::Tags;
-
 
 pub fn authenticate(stream: &mut TcpStream, nonce: u64) -> Result<()> {
     let key = env::var("HIVE_KEY").expect("HIVE_KEY");
@@ -26,18 +28,21 @@ pub fn create_poller(client: &Client) -> Result<Poller> {
     Ok(Poller::from(tags))
 }
 
-pub fn poll(stream: &mut TcpStream, model_name: String, optimized_polling_sequence: &bool) -> Result<()> {
-    
+pub fn poll(
+    stream: &mut TcpStream,
+    model_name: String,
+    optimized_polling_sequence: &bool,
+) -> Result<()> {
     // polling with "-" will tell the HiveCore to take the last seen
     // set of models as the possible tags. The Core will optimize the
-    // sequence in which the models are polled based on the previously 
-    // handled work. 
+    // sequence in which the models are polled based on the previously
+    // handled work.
     // if the last work was using model X, it will prioratize the model
     // X work requests to handle. This minimizes the amount of switching
     // of models in the worker VRAM.
     // requres the worker to have previously sent the tags to the core,
     // so that the core has the list to work with
-    // However, polling with X;Y;Z will set the sequence of models in 
+    // However, polling with X;Y;Z will set the sequence of models in
     // which the work is polled
     let poll_target = if *optimized_polling_sequence {
         "-".to_string()
@@ -96,8 +101,6 @@ fn read_next_message(stream: &mut TcpStream, message_length: usize) -> Result<St
     Ok(raw_request)
 }
 
-
-
 fn stream_response_to_proxy(
     request: ProxyRequest,
     stream: &mut TcpStream,
@@ -105,21 +108,37 @@ fn stream_response_to_proxy(
 ) -> Result<bool> {
     info!("Recieved Ollama request.");
     let response = make_ollama_request(&request, client)?;
-    match response.status().as_u16() {
-        200 =>  info!("Ollama responded with: {} | Streaming back response...", response.status()),
-        _ =>  warn!("Ollama responded with: {} | Streaming back response...", response.status()),
-    }
-    
-    if let Err(e) = write_http_status_line(stream, &response) {
+    let response_code = response.status().as_u16();
+    let mut influx_stream: Vec<u8> = vec![];
+
+    match response_code {
+        200 => info!(
+            "Ollama responded with: {} | Streaming back response...",
+            response.status()
+        ),
+        _ => warn!(
+            "Ollama responded with: {} | Streaming back response...",
+            response.status()
+        ),
+    };
+
+    if let Err(e) = write_http_status_line(stream, &response, &mut influx_stream) {
         return Err(anyhow!("Error streaming status line to HiveCore: {}", e));
     }
 
-    if let Err(e) = write_http_headers(stream, &response) {
+    if let Err(e) = write_http_headers(stream, &response, &mut influx_stream) {
         return Err(anyhow!("Error streaming headers to HiveCore: {}", e));
     }
 
-    if let Err(e) = stream_body(stream, response) {
+    if let Err(e) = stream_body(stream, response, &mut influx_stream) {
         return Err(anyhow!("Error streaming body to HiveCore: {}", e));
+    }
+
+    if response_code != 200 {
+        if let Ok(data) = String::from_utf8(influx_stream) {
+            let data_point = DataPoint::builder("ollama").field("response", data);
+            log_influx(vec![data_point]);
+        }
     }
 
     info!("Stream ended. Response done.");
@@ -127,7 +146,11 @@ fn stream_response_to_proxy(
     Ok(request.modifies_poll())
 }
 
-fn stream_body(stream: &mut TcpStream, response: Response) -> Result<()> {
+fn stream_body(
+    stream: &mut TcpStream,
+    response: Response,
+    influx_stream: &mut Vec<u8>,
+) -> Result<()> {
     let mut response_reader = BufReader::new(response);
 
     loop {
@@ -137,56 +160,62 @@ fn stream_body(stream: &mut TcpStream, response: Response) -> Result<()> {
             break;
         }
 
-        let chunk_size = format!("{:X}\r\n", bytes_read);
-        stream.write_all(chunk_size.as_bytes())?;
-        stream.write_all(&chunk)?;
-        stream.write_all(b"\r\n")?;
+        let chunk_size = format!("{:X}\r\n", bytes_read).into_bytes();
+        write_to_both_streams(stream, influx_stream, &chunk_size)?;
+        write_to_both_streams(stream, influx_stream, &chunk)?;
+        write_to_both_streams(stream, influx_stream, b"\r\n")?;
         stream.flush()?;
     }
-    stream.write_all(b"0\r\n\r\n")?;
+    write_to_both_streams(stream, influx_stream, b"0\r\n\r\n")?;
     stream.flush()?;
     Ok(())
 }
 
-fn write_http_headers(stream: &mut TcpStream, response: &Response) -> Result<()> {
+/// Writes HTTP headers to both TCP stream and the influx stream, which is used for error reporting.
+fn write_http_headers(
+    stream: &mut TcpStream,
+    response: &Response,
+    influx_stream: &mut Vec<u8>,
+) -> Result<()> {
     for (key, value) in response.headers() {
         if key.as_str().to_ascii_lowercase() != "transfer-encoding" {
-            let header_line = format!("{}: {}\r\n", key, value.to_str()?);
-            stream.write_all(header_line.as_bytes())?;
+            let header_line = format!("{}: {}\r\n", key, value.to_str()?).into_bytes();
+            write_to_both_streams(stream, influx_stream, &header_line)?;
         }
     }
-    stream.write_all(b"Transfer-Encoding: chunked\r\n")?;
-    stream.write_all(b"Connection: close\r\n")?;
-    stream.write_all(b"\r\n")?; // End of headers
+    write_to_both_streams(stream, influx_stream, b"Transfer-Encoding: chunked\r\n")?;
+    write_to_both_streams(stream, influx_stream, b"Connection: close\r\n")?;
+    write_to_both_streams(stream, influx_stream, b"\r\n")?;
     stream.flush()?;
     Ok(())
 }
 
-fn write_http_status_line(stream: &mut TcpStream, response: &Response) -> Result<()> {
+/// Write HTTP status line to both TCP stream and the influx stream, which is used for error reporting if the status is not 200.
+fn write_http_status_line(
+    stream: &mut TcpStream,
+    response: &Response,
+    influx_stream: &mut Vec<u8>,
+) -> Result<()> {
     // Write the status line
     let status_line = format!(
-        "HTTP/1.1 {} {}\r\n", 
-        response.status(), 
-        response
-            .status()
-            .canonical_reason()
-            .unwrap_or("")
-    );
-    stream.write_all(status_line.as_bytes())?;
+        "HTTP/1.1 {} {}\r\n",
+        response.status(),
+        response.status().canonical_reason().unwrap_or("")
+    )
+    .into_bytes();
+    write_to_both_streams(stream, influx_stream, &status_line)?;
     stream.flush()?;
     Ok(())
 }
- 
+
 fn make_ollama_request(request: &ProxyRequest, client: &Client) -> Result<Response> {
     let ollama_base_url = env::var("OLLAMA_URL").expect("OLLAMA_URL");
     let request_target = format!("{ollama_base_url}{}", request.uri);
-    
-    
+
     if request.protocol.eq("HIVE") {
         return Err(anyhow!("Can't make HIVE requests to Ollama."));
     }
-    
-    
+
     let mut request_builder = client.request(request.method.parse().unwrap(), request_target);
 
     // Exclude certain headers when forwarding
@@ -208,4 +237,11 @@ fn make_ollama_request(request: &ProxyRequest, client: &Client) -> Result<Respon
 
     // Send the request and get the response
     Ok(request_builder.send()?)
+}
+
+/// Writes to both streams simultaneously. Exists to reduce code duplication.
+fn write_to_both_streams(tcp: &mut TcpStream, second: &mut Vec<u8>, data: &[u8]) -> Result<()> {
+    tcp.write_all(data)?;
+    second.extend_from_slice(data);
+    Ok(())
 }

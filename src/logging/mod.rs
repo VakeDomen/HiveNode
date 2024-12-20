@@ -13,8 +13,8 @@ use influxdb2::{
 use nvml_wrapper::Nvml;
 use sysinfo::System;
 use tokio::runtime::Handle;
-
-use crate::Error;
+mod error;
+pub use error::*;
 
 pub mod logger;
 
