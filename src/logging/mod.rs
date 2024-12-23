@@ -16,6 +16,8 @@ use tokio::runtime::Handle;
 mod error;
 pub use error::*;
 
+use crate::USERNAME;
+
 pub mod logger;
 
 static INFLUX_CLIENT: LazyLock<Arc<Mutex<Option<InfluxInformation>>>> =
@@ -45,13 +47,13 @@ pub(crate) fn setup_influx_logging(tokio_handle: Handle) -> Result<(), Error> {
     Ok(())
 }
 
-pub(crate) fn log_influx(data: Vec<DataPointBuilder>) {
+pub(crate) fn log_influx(data: Vec<DataPointBuilder>, id: String) {
     if let Ok(guard) = INFLUX_CLIENT.lock() {
         if let Some(influx) = &*guard {
             let clone = influx.client.clone();
             let data: Vec<DataPoint> = data
                 .into_iter()
-                .filter_map(|x| x.tag("node", &influx.node_key).build().ok())
+                .filter_map(|x| x.tag("node", &id).build().ok())
                 .collect();
             influx.tokio_handle.spawn(async move {
                 let _ = clone.write("hivecore", stream::iter(data)).await;
@@ -108,7 +110,12 @@ fn start_load_logging() {
                         .field("swap_total", system.total_swap() as f64),
                 );
 
-                log_influx(data_points);
+                if let Ok(guard) = USERNAME.lock() {
+                    if let Some(id) = &*guard {
+                        log_influx(data_points, id.clone());
+                    }
+                }
+
                 sleep(Duration::from_secs(5));
                 system.refresh_all();
             }

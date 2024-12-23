@@ -2,8 +2,10 @@ use dotenv::dotenv;
 use log::{error, warn};
 use logging::logger::init_logging;
 use logging::setup_influx_logging;
+use once_cell::sync::Lazy;
 use protocol::connection::run_protocol;
 use std::env;
+use std::sync::{Arc, Mutex};
 use std::thread::{sleep, spawn};
 use std::time::Duration;
 use tokio::runtime::Handle;
@@ -12,6 +14,9 @@ mod logging;
 mod messages;
 mod models;
 mod protocol;
+
+pub static NONCE: Lazy<u64> = Lazy::new(|| rand::random::<u64>());
+pub static USERNAME: Lazy<Arc<Mutex<Option<String>>>> = Lazy::new(|| Default::default());
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -24,12 +29,11 @@ async fn main() -> anyhow::Result<()> {
         .parse()
         .unwrap();
 
-    let nonce = rand::random::<u64>();
     let reconnection_duration_seconds = 10;
 
     let mut handles = vec![];
     for _ in 0..concurrent {
-        let movable_nonce = nonce.clone();
+        let movable_nonce = NONCE.clone();
         let handle = spawn(move || loop {
             if let Err(e) = run_protocol(movable_nonce) {
                 error!("Connection to proxy ended: {}", e);

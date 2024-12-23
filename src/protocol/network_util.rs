@@ -3,6 +3,7 @@ use influxdb2::models::DataPoint;
 use log::{error, info, warn};
 use reqwest::blocking::Client;
 use reqwest::blocking::Response;
+use reqwest::header::USER_AGENT;
 use reqwest::header::{HeaderName, HeaderValue};
 use std::env;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -13,6 +14,8 @@ use crate::messages::proxy_message::ProxyMessage;
 use crate::models::poller::Poller;
 use crate::models::tags::Tags;
 use crate::models::tags::Version;
+use crate::NONCE;
+use crate::USERNAME;
 
 pub fn authenticate(stream: &mut TcpStream, nonce: u64, client: &Client) -> Result<String> {
     let key = env::var("HIVE_KEY").expect("HIVE_KEY");
@@ -26,7 +29,7 @@ pub fn authenticate(stream: &mut TcpStream, nonce: u64, client: &Client) -> Resu
 
     let response = read_next_message(stream)?;
     info!("Authenticated as: {}", response.uri);
-    Ok(response.body)
+    Ok(response.uri)
 }
 
 pub fn create_poller(client: &Client) -> Result<Poller> {
@@ -76,7 +79,6 @@ fn get_tags(client: &Client) -> Result<Tags> {
     Ok(Tags::try_from(resp)?)
 }
 
-
 pub fn get_ollama_version(client: &Client) -> String {
     let req = ProxyMessage::new_http_get("/api/tags");
     let resp = match make_ollama_request(&req, client) {
@@ -124,9 +126,13 @@ fn stream_response_to_proxy(
     client: &Client,
 ) -> Result<bool> {
     info!("Recieved Ollama request.");
+    let id = authenticate(stream, NONCE.clone(), client)?;
+    if let Ok(mut guard) = USERNAME.lock() {
+        *guard = Some(id.clone());
+    }
     let response = make_ollama_request(&request, client)?;
     let response_code = response.status().as_u16();
-    let mut influx_stream: Vec<u8> = vec![];
+    let mut influx_stream: Vec<u8> = request.body.clone().into_bytes();
 
     match response_code {
         200 => info!(
@@ -140,22 +146,22 @@ fn stream_response_to_proxy(
     };
 
     if let Err(e) = write_http_status_line(stream, &response, &mut influx_stream) {
-        send_influx(influx_stream);
+        send_influx(influx_stream, id);
         return Err(anyhow!("Error streaming status line to HiveCore: {}", e));
     }
 
     if let Err(e) = write_http_headers(stream, &response, &mut influx_stream) {
-        send_influx(influx_stream);
+        send_influx(influx_stream, id);
         return Err(anyhow!("Error streaming headers to HiveCore: {}", e));
     }
 
     if let Err(e) = stream_body(stream, response, &mut influx_stream) {
-        send_influx(influx_stream);
+        send_influx(influx_stream, id);
         return Err(anyhow!("Error streaming body to HiveCore: {}", e));
     }
 
     // if response_code != 200 {
-    send_influx(influx_stream);
+    send_influx(influx_stream, id);
     // }
 
     info!("Stream ended. Response done.");
@@ -264,11 +270,11 @@ fn write_to_both_streams(tcp: &mut TcpStream, second: &mut Vec<u8>, data: &[u8])
 }
 
 /// Report a DataPoint with the message of the stream.
-fn send_influx(stream: Vec<u8>) {
+fn send_influx(stream: Vec<u8>, id: String) {
     let data_as_string = String::from_utf8(stream);
     let data_point = match data_as_string {
         Ok(data) => DataPoint::builder("ollama").field("response", data),
         Err(x) => DataPoint::builder("ollama").field("utf8_error", x.to_string()),
     };
-    log_influx(vec![data_point]);
+    log_influx(vec![data_point], id);
 }
