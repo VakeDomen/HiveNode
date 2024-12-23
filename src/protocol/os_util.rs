@@ -19,7 +19,7 @@ pub fn get_ollama_version() -> String {
             Ok(out) => out,
             Err(_) => return UNKNOWN_VERSION.to_string(),
         };
-        version.trim().to_string()
+        version.trim().replace(" ", "_").to_string()
     } else {
         UNKNOWN_VERSION.to_string()
     }
