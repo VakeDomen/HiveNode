@@ -26,7 +26,7 @@ pub fn authenticate(stream: &mut TcpStream, nonce: u64) -> Result<String> {
     stream.flush()?;
 
     let response = read_next_message(stream)?;
-    info!("Authenticated as: {}", response.body);
+    info!("Authenticated as: {}", response.uri);
     Ok(response.body)
 }
 
