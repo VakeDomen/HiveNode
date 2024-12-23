@@ -38,3 +38,18 @@ impl TryFrom<Response> for Tags {
     }
 }
 
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Version {
+    pub version: String,
+}
+
+impl TryFrom<Response> for Version {
+    type Error = anyhow::Error;
+
+    fn try_from(response: Response) -> Result<Self> {
+        let body = response.text()?;
+        let models_response: Version = serde_json::from_str(&body)?;
+        Ok(models_response)
+    }
+}

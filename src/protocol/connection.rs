@@ -21,7 +21,7 @@ pub fn run_protocol(nonce: u64) -> Result<()> {
         return Err(anyhow!(format!("Error refreshing avalible models: {}", e)));
     };
 
-    if let Err(e) = authenticate(&mut stream, nonce) {
+    if let Err(e) = authenticate(&mut stream, nonce, &client) {
         return Err(anyhow!(format!("Error authenticating: {}", e)));
     };
 

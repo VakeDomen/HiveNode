@@ -12,12 +12,11 @@ use crate::logging::log_influx;
 use crate::messages::proxy_message::ProxyMessage;
 use crate::models::poller::Poller;
 use crate::models::tags::Tags;
+use crate::models::tags::Version;
 
-use super::os_util::get_ollama_version;
-
-pub fn authenticate(stream: &mut TcpStream, nonce: u64) -> Result<String> {
+pub fn authenticate(stream: &mut TcpStream, nonce: u64, client: &Client) -> Result<String> {
     let key = env::var("HIVE_KEY").expect("HIVE_KEY");
-    let ollama_version = get_ollama_version();
+    let ollama_version = get_ollama_version(client);
     let node_version: &str = env!("CARGO_PKG_VERSION");
 
     // Create an HTTP client
@@ -75,6 +74,19 @@ fn get_tags(client: &Client) -> Result<Tags> {
     let req = ProxyMessage::new_http_get("/api/tags");
     let resp = make_ollama_request(&req, client)?;
     Ok(Tags::try_from(resp)?)
+}
+
+
+pub fn get_ollama_version(client: &Client) -> String {
+    let req = ProxyMessage::new_http_get("/api/tags");
+    let resp = match make_ollama_request(&req, client) {
+        Ok(resp) => resp,
+        Err(_) => return "Unknown".to_string(),
+    };
+    match Version::try_from(resp) {
+        Ok(v) => v.version,
+        Err(_) => "Unknown".to_string(),
+    }
 }
 
 fn handle_hive_request(request: ProxyMessage, _stream: &mut TcpStream) -> Result<bool> {
