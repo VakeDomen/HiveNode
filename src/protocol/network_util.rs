@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Result};
-use influxdb2::models::data_point::DataPointBuilder;
 use influxdb2::models::DataPoint;
 use log::{error, info, warn};
 use reqwest::blocking::Client;
@@ -10,17 +9,25 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 
 use crate::logging::log_influx;
-use crate::messages::proxy_request::ProxyRequest;
+use crate::messages::proxy_message::ProxyMessage;
 use crate::models::poller::Poller;
 use crate::models::tags::Tags;
 
-pub fn authenticate(stream: &mut TcpStream, nonce: u64) -> Result<()> {
+use super::os_util::get_ollama_version;
+
+pub fn authenticate(stream: &mut TcpStream, nonce: u64) -> Result<String> {
     let key = env::var("HIVE_KEY").expect("HIVE_KEY");
+    let ollama_version = get_ollama_version();
+    let node_version: &str = env!("CARGO_PKG_VERSION");
+
     // Create an HTTP client
-    let auth_request = format!("AUTH {key};{nonce} HIVE\r\n");
+    let auth_request = format!("AUTH {key};{nonce};{node_version};{ollama_version} HIVE\r\n");
     stream.write_all(auth_request.as_bytes())?;
     stream.flush()?;
-    Ok(())
+
+    let response = read_next_message(stream)?;
+    info!("Authenticated as: {}", response.body);
+    Ok(response.body)
 }
 
 pub fn create_poller(client: &Client) -> Result<Poller> {
@@ -57,10 +64,7 @@ pub fn poll(
 }
 
 pub fn proxy(mut stream: &mut TcpStream, client: &Client) -> Result<bool> {
-    let message_length = read_next_message_length(&mut stream)?;
-    let raw_message = read_next_message(&mut stream, message_length)?;
-    let request = ProxyRequest::from(raw_message);
-
+    let request = read_next_message(&mut stream)?;
     match request.protocol.as_str() {
         "HIVE" => handle_hive_request(request, stream),
         _ => stream_response_to_proxy(request, &mut stream, client),
@@ -68,12 +72,12 @@ pub fn proxy(mut stream: &mut TcpStream, client: &Client) -> Result<bool> {
 }
 
 fn get_tags(client: &Client) -> Result<Tags> {
-    let req = ProxyRequest::new_http_get("/api/tags");
+    let req = ProxyMessage::new_http_get("/api/tags");
     let resp = make_ollama_request(&req, client)?;
     Ok(Tags::try_from(resp)?)
 }
 
-fn handle_hive_request(request: ProxyRequest, _stream: &mut TcpStream) -> Result<bool> {
+fn handle_hive_request(request: ProxyMessage, _stream: &mut TcpStream) -> Result<bool> {
     if !request.method.eq("PONG") {
         info!("Recieved request from HiveCore: {:#?}", request);
     }
@@ -89,7 +93,8 @@ fn read_next_message_length(stream: &mut TcpStream) -> Result<usize> {
     Ok(i32::from_be_bytes(len_buf) as usize)
 }
 
-fn read_next_message(stream: &mut TcpStream, message_length: usize) -> Result<String> {
+fn read_next_message(stream: &mut TcpStream) -> Result<ProxyMessage> {
+    let message_length = read_next_message_length(stream)?;
     let mut buffer = vec![0u8; message_length];
     if let Err(e) = stream.read_exact(&mut buffer) {
         error!("Error reading message from HiveCore: {}", e);
@@ -98,11 +103,11 @@ fn read_next_message(stream: &mut TcpStream, message_length: usize) -> Result<St
 
     let raw_request = String::from_utf8_lossy(&buffer);
     let raw_request = raw_request.into_owned();
-    Ok(raw_request)
+    Ok(ProxyMessage::from(raw_request))
 }
 
 fn stream_response_to_proxy(
-    request: ProxyRequest,
+    request: ProxyMessage,
     stream: &mut TcpStream,
     client: &Client,
 ) -> Result<bool> {
@@ -208,7 +213,7 @@ fn write_http_status_line(
     Ok(())
 }
 
-fn make_ollama_request(request: &ProxyRequest, client: &Client) -> Result<Response> {
+fn make_ollama_request(request: &ProxyMessage, client: &Client) -> Result<Response> {
     let ollama_base_url = env::var("OLLAMA_URL").expect("OLLAMA_URL");
     let request_target = format!("{ollama_base_url}{}", request.uri);
 

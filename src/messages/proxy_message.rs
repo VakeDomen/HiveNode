@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 #[derive(Debug)]
-pub struct ProxyRequest {
+pub struct ProxyMessage {
     pub protocol: String, 
     pub method: String, 
     pub uri: String, 
@@ -9,7 +9,7 @@ pub struct ProxyRequest {
     pub body: String,
 }
 
-impl From<String> for ProxyRequest {
+impl From<String> for ProxyMessage {
     fn from(raw_request: String) -> Self {
         let mut lines = raw_request.lines();
         let request_line = lines.next().unwrap_or("");
@@ -39,7 +39,7 @@ impl From<String> for ProxyRequest {
     }
 }
 
-impl ProxyRequest {
+impl ProxyMessage {
     pub fn new_http_get(uri: &str) -> Self {
         Self {
             protocol: "HTTP/1.1".into(),
