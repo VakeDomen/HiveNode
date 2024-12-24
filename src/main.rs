@@ -46,6 +46,10 @@ async fn main() -> anyhow::Result<()> {
                         );
                     }
                 }
+                log_influx(
+                    vec![DataPoint::builder("ollama").field("error", format!("{:?}", e))],
+                    "undefined".to_string(),
+                );
                 error!("Connection to proxy ended: {}", e);
                 warn!(
                     "Waiting {}s before reconnection.",
