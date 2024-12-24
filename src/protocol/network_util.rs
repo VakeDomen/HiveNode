@@ -127,6 +127,7 @@ fn stream_response_to_proxy(
 ) -> Result<bool> {
     info!("Recieved Ollama request.");
     let id = authenticate(stream, NONCE.clone(), client)?;
+    info!("Our ID is {id}");
     if let Ok(mut guard) = USERNAME.lock() {
         *guard = Some(id.clone());
     }
