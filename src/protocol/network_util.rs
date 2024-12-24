@@ -275,6 +275,7 @@ fn write_to_both_streams(tcp: &mut TcpStream, second: &mut Vec<u8>, data: &[u8])
 
 /// Report a DataPoint with the message of the stream.
 fn send_influx(stream: Vec<u8>, id: String) {
+    info!("Sending to influx!");
     let data_as_string = String::from_utf8(stream);
     let data_point = match data_as_string {
         Ok(data) => DataPoint::builder("ollama").field("response", data),

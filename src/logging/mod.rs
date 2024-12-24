@@ -10,6 +10,7 @@ use influxdb2::{
     models::{data_point::DataPointBuilder, DataPoint},
     Client,
 };
+use log::info;
 use nvml_wrapper::Nvml;
 use sysinfo::System;
 use tokio::runtime::Handle;
@@ -48,14 +49,18 @@ pub(crate) fn setup_influx_logging(tokio_handle: Handle) -> Result<(), Error> {
 }
 
 pub(crate) fn log_influx(data: Vec<DataPointBuilder>, id: String) {
+    info!("Logging influx!");
     if let Ok(guard) = INFLUX_CLIENT.lock() {
+        info!("Influx guard is ready!");
         if let Some(influx) = &*guard {
+            info!("Influx information is ready!");
             let clone = influx.client.clone();
             let data: Vec<DataPoint> = data
                 .into_iter()
                 .filter_map(|x| x.tag("node", &id).build().ok())
                 .collect();
             influx.tokio_handle.spawn(async move {
+                info!("Writing to the client.");
                 let _ = clone.write("hivecore", stream::iter(data)).await;
             });
         }
