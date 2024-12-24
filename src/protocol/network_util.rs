@@ -125,7 +125,15 @@ fn stream_response_to_proxy(
     stream: &mut TcpStream,
     client: &Client,
 ) -> Result<bool> {
-    info!("Recieved Ollama request. Our ID is {:?}", USERNAME.lock());
+    let Ok(guard) = USERNAME.lock() else {
+        return Err(anyhow!("Could not lock the shared USERNAME."));
+    };
+
+    let Some(id) = guard.clone() else {
+        return Err(anyhow!("USERNAME is None!"));
+    };
+
+    info!("Recieved Ollama request. Our ID is {:?}", id);
     let response = make_ollama_request(&request, client)?;
     let response_code = response.status().as_u16();
     let mut influx_stream: Vec<u8> = request.body.clone().into_bytes();

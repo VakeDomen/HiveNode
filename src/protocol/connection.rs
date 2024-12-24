@@ -30,8 +30,9 @@ pub fn run_protocol(nonce: u64) -> Result<()> {
         return Err(anyhow!(format!("Error refreshing avalible models: {}", e)));
     };
 
-    let Ok(id) = authenticate(&mut stream, nonce, &client) else {
-        return Err(anyhow!(format!("Error authenticating: {}", e)));
+    let id = match authenticate(&mut stream, nonce, &client) {
+        Ok(id) => id,
+        Err(e) => return Err(anyhow!(format!("Error authenticating: {}", e))),
     };
 
     if let Ok(mut guard) = USERNAME.lock() {
