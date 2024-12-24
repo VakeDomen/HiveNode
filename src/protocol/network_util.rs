@@ -125,12 +125,7 @@ fn stream_response_to_proxy(
     stream: &mut TcpStream,
     client: &Client,
 ) -> Result<bool> {
-    info!("Recieved Ollama request.");
-    let id = authenticate(stream, NONCE.clone(), client)?;
-    info!("Our ID is {id}");
-    if let Ok(mut guard) = USERNAME.lock() {
-        *guard = Some(id.clone());
-    }
+    info!("Recieved Ollama request. Our ID is {:?}", USERNAME.lock());
     let response = make_ollama_request(&request, client)?;
     let response_code = response.status().as_u16();
     let mut influx_stream: Vec<u8> = request.body.clone().into_bytes();

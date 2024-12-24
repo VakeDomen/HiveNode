@@ -1,19 +1,28 @@
-use std::{env, net::TcpStream, sync::{Arc, Mutex}};
 use anyhow::{anyhow, Result};
 use log::info;
 use once_cell::sync::Lazy;
 use reqwest::blocking::Client;
+use std::{
+    env,
+    net::TcpStream,
+    sync::{Arc, Mutex},
+};
 
-use crate::protocol::network_util::{authenticate, create_poller, poll, proxy};
+use crate::{
+    protocol::network_util::{authenticate, create_poller, poll, proxy},
+    USERNAME,
+};
 
 pub static MODELS: Lazy<Arc<Mutex<String>>> = Lazy::new(|| Arc::new(Mutex::new("/".into())));
 
 pub fn run_protocol(nonce: u64) -> Result<()> {
-    
     // Connect to the Proxy Server
     let proxy_server_url = env::var("HIVE_CORE_URL").expect("HIVE_CORE_URL");
     let mut stream = TcpStream::connect(proxy_server_url.clone())?;
-    info!("Establised connection to HiveCore Proxy Server: {}", proxy_server_url);
+    info!(
+        "Establised connection to HiveCore Proxy Server: {}",
+        proxy_server_url
+    );
 
     let client = Client::new();
 
@@ -21,9 +30,13 @@ pub fn run_protocol(nonce: u64) -> Result<()> {
         return Err(anyhow!(format!("Error refreshing avalible models: {}", e)));
     };
 
-    if let Err(e) = authenticate(&mut stream, nonce, &client) {
+    let Ok(id) = authenticate(&mut stream, nonce, &client) else {
         return Err(anyhow!(format!("Error authenticating: {}", e)));
     };
+
+    if let Ok(mut guard) = USERNAME.lock() {
+        *guard = Some(id);
+    }
 
     info!("Succesfully authenticated to the proxy");
     let mut has_informed_core_of_tags = false;
@@ -33,13 +46,13 @@ pub fn run_protocol(nonce: u64) -> Result<()> {
             let models = MODELS.lock().unwrap();
             models.clone()
         };
-        
+
         if let Err(e) = poll(&mut stream, models, &has_informed_core_of_tags) {
             return Err(anyhow!(format!("Error polling HiveCore: {}", e)));
         };
 
         has_informed_core_of_tags = true;
-    
+
         let should_refresh = match proxy(&mut stream, &client) {
             Ok(should_refresh) => should_refresh,
             Err(e) => return Err(anyhow!(format!("Failed to proxy request: {}", e))),
