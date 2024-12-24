@@ -60,7 +60,6 @@ pub(crate) fn log_influx(data: Vec<DataPointBuilder>, id: String) {
                 .filter_map(|x| x.tag("node", &id).build().ok())
                 .collect();
             influx.tokio_handle.spawn(async move {
-                info!("Writing to the client. Data Points: {}", data.len());
                 let _ = clone.write("hivecore", stream::iter(data)).await;
             });
         }
