@@ -1,10 +1,12 @@
 use dotenv::dotenv;
+use influxdb2::models::DataPoint;
 use log::{error, warn};
 use logging::logger::init_logging;
-use logging::setup_influx_logging;
+use logging::{log_influx, setup_influx_logging};
 use once_cell::sync::Lazy;
 use protocol::connection::run_protocol;
 use std::env;
+use std::fmt::format;
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, spawn};
 use std::time::Duration;
@@ -36,6 +38,14 @@ async fn main() -> anyhow::Result<()> {
         let movable_nonce = NONCE.clone();
         let handle = spawn(move || loop {
             if let Err(e) = run_protocol(movable_nonce) {
+                if let Ok(guard) = USERNAME.lock() {
+                    if let Some(username) = &*guard {
+                        log_influx(
+                            vec![DataPoint::builder("ollama").field("error", format!("{:?}", e))],
+                            username.clone(),
+                        );
+                    }
+                }
                 error!("Connection to proxy ended: {}", e);
                 warn!(
                     "Waiting {}s before reconnection.",
