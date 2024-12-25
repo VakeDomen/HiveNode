@@ -26,7 +26,7 @@ pub fn authenticate(stream: &mut TcpStream, nonce: u64, client: &Client) -> Resu
 
     let response = read_next_message(stream)?;
     info!("Authenticated as: {}", response.uri);
-    Ok(response.body)
+    Ok(response.uri)
 }
 
 pub fn create_poller(client: &Client) -> Result<Poller> {
