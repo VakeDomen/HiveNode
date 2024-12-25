@@ -183,6 +183,7 @@ start_instance() {
     export OLLAMA_LOAD_TIMEOUT="120m"
     export OLLAMA_KEEP_ALIVE="120m"
     export OLLAMA_NUM_PARALLEL="16"
+    export OLLAMA_MAX_LOADED_MODELS=1
     export OLLAMA_HOST="${HOST}:${port}"
     export OLLAMA_LOG_LEVEL=DEBUG
 
