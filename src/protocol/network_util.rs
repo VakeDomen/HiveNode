@@ -7,6 +7,7 @@ use reqwest::header::{HeaderName, HeaderValue};
 use std::env;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
+use std::time::Duration;
 
 use crate::logging::log_influx;
 use crate::messages::proxy_message::ProxyMessage;
@@ -253,7 +254,7 @@ fn make_ollama_request(request: &ProxyMessage, client: &Client) -> Result<Respon
     }
 
     // Send the request and get the response
-    Ok(request_builder.send()?)
+    Ok(request_builder.timeout(Duration::from_secs(60 * 30)).send()?)
 }
 
 /// Writes to both streams simultaneously. Exists to reduce code duplication.
