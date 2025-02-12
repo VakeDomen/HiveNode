@@ -13,6 +13,27 @@ use super::network_util::get_tags;
 lazy_static! {
     static ref LAST_REFRESH: Arc<RwLock<DateTime<Utc>>> = Arc::new(RwLock::new(Utc::now()));
     static ref NODE_NAME: Arc<RwLock<String>> = Arc::new(RwLock::new(String::from("Unknown")));
+    static ref REBOOT: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    static ref SHUTDOWN: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+}
+
+
+pub fn set_reboot(b: bool) {
+    let mut rbt = REBOOT.write().unwrap();
+    *rbt = b;
+}
+
+pub fn set_shutdown(b: bool) {
+    let mut sht = SHUTDOWN.write().unwrap();
+    *sht = b;
+}
+
+pub fn get_reboot() -> bool {
+    *REBOOT.read().unwrap()
+}
+
+pub fn get_shutdown() -> bool {
+    *SHUTDOWN.read().unwrap()
 }
 
 pub fn set_node_name(name: String) {

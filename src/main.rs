@@ -3,6 +3,7 @@ use log::{error, warn};
 use logging::logger::init_logging;
 use logging::setup_influx_logging;
 use protocol::connection::run_protocol;
+use protocol::state::{get_shutdown, set_reboot};
 use std::env;
 use std::thread::{sleep, spawn};
 use std::time::Duration;
@@ -38,6 +39,10 @@ async fn main() -> anyhow::Result<()> {
                     reconnection_duration_seconds
                 );
             }
+            if get_shutdown() {
+                break;
+            }
+            set_reboot(false);
             sleep(Duration::from_secs(reconnection_duration_seconds));
         });
         handles.push(handle);

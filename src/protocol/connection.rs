@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use reqwest::blocking::Client;
 
 use crate::protocol::network_util::{authenticate, poll, proxy};
-use super::state::{get_last_refresh, init_local_time, notify_refresh, refresh_poll_models};
+use super::state::{get_last_refresh, get_reboot, get_shutdown, init_local_time, notify_refresh, refresh_poll_models};
 
 
 
@@ -46,6 +46,10 @@ pub fn run_protocol(nonce: u64) -> Result<()> {
 
         if should_refresh {
             notify_refresh()
+        }
+
+        if get_reboot() || get_shutdown() {
+            return Ok(());
         }
     }
 }
