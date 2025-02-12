@@ -1,29 +1,23 @@
-use std::{env, net::TcpStream, sync::{Arc, Mutex, RwLock}};
+use std::{env, net::TcpStream, sync::{Arc, RwLock}};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Days, Utc};
-use once_cell::sync::Lazy;
 use reqwest::blocking::Client;
 use lazy_static::lazy_static;
 
-use crate::protocol::network_util::{authenticate, poll, proxy};
-
+use crate::{models::poller::Poller, protocol::network_util::{authenticate, poll, proxy}};
 use super::network_util::get_tags;
-
-
 
 lazy_static! {
     static ref LAST_REFRESH: Arc<RwLock<DateTime<Utc>>> = Arc::new(RwLock::new(Utc::now()));
 }
-
 
 pub fn run_protocol(nonce: u64) -> Result<()> {
     let proxy_server_url = env::var("HIVE_CORE_URL").expect("HIVE_CORE_URL");
     let mut stream = TcpStream::connect(proxy_server_url.clone())?;
     let client = Client::new();
     let mut local_refresh_time: DateTime<Utc> = init_local_time();
-
+    let mut opzimized_poll = false;
     let mut models ="/".to_string();
-
 
     if let Err(e) = refresh_poll_models(&client, &mut local_refresh_time, &mut models) {
         return Err(anyhow!(format!("Error refreshing available models: {}", e)));
@@ -33,7 +27,6 @@ pub fn run_protocol(nonce: u64) -> Result<()> {
         return Err(anyhow!(format!("Error authenticating: {}", e)));
     };
     
-
     loop {
         let global_refresh_time = get_last_refresh();
 
@@ -43,9 +36,11 @@ pub fn run_protocol(nonce: u64) -> Result<()> {
             };
         }
 
-        if let Err(e) = poll(&mut stream, &models, &false) {
+        if let Err(e) = poll(&mut stream, &models, &opzimized_poll) {
             return Err(anyhow!(format!("Error polling HiveCore: {}", e)));
         };
+
+        opzimized_poll = true;
 
         let should_refresh = match proxy(&mut stream, &client) {
             Ok(should_refresh) => should_refresh,
@@ -76,6 +71,9 @@ fn refresh_poll_models(
     local_last_refresh: &mut DateTime<Utc>,
     models: &mut String,
 ) -> Result<()> {
+    *models = (*Poller::from(get_tags(client)?)
+                .get_models_target())
+                .to_string();
     *local_last_refresh = get_last_refresh();
     Ok(())
 }

@@ -51,6 +51,7 @@ pub fn poll(
         format!("POLL {model_name} HIVE\r\n")
     };
 
+    println!("{poll_target}");
     stream.write_all(poll_target.as_bytes())?;
     stream.flush()?;
     Ok(())
