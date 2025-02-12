@@ -186,12 +186,12 @@ fn stream_body(
         }
 
         let chunk_size = format!("{:X}\r\n", bytes_read).into_bytes();
-        write_to_both_streams(stream, influx_stream, &chunk_size)?;
+        stream.write_all(&chunk_size)?;
         write_to_both_streams(stream, influx_stream, &chunk)?;
         write_to_both_streams(stream, influx_stream, b"\r\n")?;
         stream.flush()?;
     }
-    write_to_both_streams(stream, influx_stream, b"0\r\n\r\n")?;
+    stream.write_all("0\r\n\r\n".as_bytes())?;
     stream.flush()?;
     Ok(())
 }
@@ -299,7 +299,7 @@ fn send_success_influx_with_req(req: &ProxyMessage, stream: Vec<u8>, response_co
         .tag("uri", req.uri.clone())
         .tag("status", "success")
         .tag("code", response_code.to_string())
-        .field("success_message", cleaned_data);
+        .field("worker_success_message", cleaned_data);
 
     log_influx(vec![data_point]);
 }
@@ -316,7 +316,7 @@ fn send_err_influx_with_req(req: &ProxyMessage, stream: Vec<u8>, err: &String) {
         .tag("status", "error")
         .tag("response", cleaned_data)
         .tag("code", "500")
-        .field("error_message", err.to_string());
+        .field("worker_error_message", err.to_string());
 
     log_influx(vec![data_point]);
 }

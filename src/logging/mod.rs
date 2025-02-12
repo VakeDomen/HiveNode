@@ -61,7 +61,7 @@ pub(crate) fn log_influx(data: Vec<DataPointBuilder>) {
                     .tag("node", get_node_name()).build().ok())
                 .collect();
             influx.tokio_handle.spawn(async move {
-                if let Err(e) = clone.write("hivenodes", stream::iter(data)).await {
+                if let Err(e) = clone.write("HiveCore", stream::iter(data)).await {
                     println!("Error writing to influx: {}", e);
                 };
             });
