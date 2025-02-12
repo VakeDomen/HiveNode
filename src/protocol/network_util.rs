@@ -165,7 +165,7 @@ fn stream_response_to_proxy(
         return Err(anyhow!(e_msg));
     }
 
-    send_success_influx_with_req(&request, influx_stream);
+    send_success_influx_with_req(&request, influx_stream, response_code);
     info!("Stream ended. Response done.");
 
     Ok(request.modifies_poll())
@@ -286,19 +286,20 @@ fn remove_newlines(input: &str) -> String {
     input.replace("\r", " ").replace("\n", " ")
 }
 
-fn send_success_influx_with_req(req: &ProxyMessage, stream: Vec<u8>) {
+fn send_success_influx_with_req(req: &ProxyMessage, stream: Vec<u8>, response_code: u16) {
     let data_as_string = String::from_utf8(stream)
         .unwrap_or_else(|_| "Invalid UTF-8".to_string());
     let cleaned_data = remove_newlines(&data_as_string);
 
     // Build data point without a client-side timestamp, so InfluxDB sets it automatically.
     let data_point = DataPoint::builder("ollama")
+        .tag("model", req.extract_model().unwrap_or("None".to_string()))
         .tag("protocol", req.protocol.clone())
         .tag("method", req.method.clone())
         .tag("uri", req.uri.clone())
         .tag("status", "success")
-        .field("response", cleaned_data)
-        .field("response_size", data_as_string.len() as i64);
+        .tag("code", response_code.to_string())
+        .field("success_message", cleaned_data);
 
     log_influx(vec![data_point]);
 }
@@ -313,9 +314,9 @@ fn send_err_influx_with_req(req: &ProxyMessage, stream: Vec<u8>, err: &String) {
         .tag("method", req.method.clone())
         .tag("uri", req.uri.clone())
         .tag("status", "error")
-        .field("error_message", err.to_string())
-        .field("response", cleaned_data)
-        .field("response_size", data_as_string.len() as i64);
+        .tag("response", cleaned_data)
+        .tag("code", "500")
+        .field("error_message", err.to_string());
 
     log_influx(vec![data_point]);
 }

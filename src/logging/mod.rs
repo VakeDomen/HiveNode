@@ -15,6 +15,7 @@ use sysinfo::System;
 use tokio::runtime::Handle;
 mod error;
 pub use error::*;
+use uuid::Uuid;
 
 use crate::protocol::state::get_node_name;
 
@@ -51,12 +52,16 @@ pub(crate) fn log_influx(data: Vec<DataPointBuilder>) {
     if let Ok(guard) = INFLUX_CLIENT.lock() {
         if let Some(influx) = &*guard {
             let clone = influx.client.clone();
+
             let data: Vec<DataPoint> = data
+                
                 .into_iter()
-                .filter_map(|x| x.tag("node", get_node_name()).build().ok())
+                .filter_map(|x| x
+                    .tag("id", Uuid::new_v4().to_string())
+                    .tag("node", get_node_name()).build().ok())
                 .collect();
             influx.tokio_handle.spawn(async move {
-                if let Err(e) = clone.write("hivecore", stream::iter(data)).await {
+                if let Err(e) = clone.write("hivenodes", stream::iter(data)).await {
                     println!("Error writing to influx: {}", e);
                 };
             });

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use serde::Serialize;
+use serde_json::Value;
 
 #[derive(Debug, Serialize)]
 pub struct ProxyMessage {
@@ -58,5 +59,19 @@ impl ProxyMessage {
             ("HTTP/1.1", "DELETE", "/api/delete") => true,
             (_, _, _) => false,
         }
+    }
+
+    pub fn extract_model(&self) -> Option<String> {
+        // Remove any surrounding whitespace (including newlines).
+        let trimmed = self.body.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        
+        // Attempt to parse the trimmed string as JSON.
+        let json_value: Value = serde_json::from_str(trimmed).ok()?;
+        
+        // If the JSON is an object and has a "model" key as a string, return it.
+        json_value.get("model")?.as_str().map(String::from)
     }
 }
