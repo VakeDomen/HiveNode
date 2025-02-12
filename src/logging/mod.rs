@@ -16,6 +16,8 @@ use tokio::runtime::Handle;
 mod error;
 pub use error::*;
 
+use crate::protocol::state::get_node_name;
+
 pub mod logger;
 
 static INFLUX_CLIENT: LazyLock<Arc<Mutex<Option<InfluxInformation>>>> =
@@ -69,6 +71,12 @@ fn start_load_logging() {
             let total_gpus = nvml.device_count()?;
 
             loop {
+                sleep(Duration::from_secs(5));
+
+                if get_node_name().eq("Unknown") {
+                    continue;
+                }
+
                 let mut data_points = vec![];
 
                 for i in 0..total_gpus {
@@ -109,7 +117,7 @@ fn start_load_logging() {
                 );
 
                 log_influx(data_points);
-                sleep(Duration::from_secs(5));
+                
                 system.refresh_all();
             }
         });

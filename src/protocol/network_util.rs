@@ -13,8 +13,9 @@ use crate::logging::log_influx;
 use crate::messages::proxy_message::ProxyMessage;
 use crate::models::tags::Tags;
 use crate::models::tags::Version;
+use crate::protocol::state::set_node_name;
 
-pub fn authenticate(stream: &mut TcpStream, nonce: u64, client: &Client) -> Result<String> {
+pub fn authenticate(stream: &mut TcpStream, nonce: u64, client: &Client) -> Result<()> {
     let key = env::var("HIVE_KEY").expect("HIVE_KEY");
     let ollama_version = get_ollama_version(client);
     let node_version: &str = env!("CARGO_PKG_VERSION");
@@ -26,7 +27,8 @@ pub fn authenticate(stream: &mut TcpStream, nonce: u64, client: &Client) -> Resu
 
     let response = read_next_message(stream)?;
     info!("Authenticated as: {}", response.uri);
-    Ok(response.uri)
+    set_node_name(response.uri);
+    Ok(())
 }
 pub fn poll(
     stream: &mut TcpStream,
