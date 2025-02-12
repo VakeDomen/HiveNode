@@ -53,10 +53,12 @@ pub(crate) fn log_influx(data: Vec<DataPointBuilder>) {
             let clone = influx.client.clone();
             let data: Vec<DataPoint> = data
                 .into_iter()
-                .filter_map(|x| x.tag("node", &influx.node_key).build().ok())
+                .filter_map(|x| x.tag("node", get_node_name()).build().ok())
                 .collect();
             influx.tokio_handle.spawn(async move {
-                let _ = clone.write("hivecore", stream::iter(data)).await;
+                if let Err(e) = clone.write("hivecore", stream::iter(data)).await {
+                    println!("Error writing to influx: {}", e);
+                };
             });
         }
     }

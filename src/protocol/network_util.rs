@@ -5,6 +5,7 @@ use reqwest::blocking::Client;
 use reqwest::blocking::Response;
 use reqwest::header::{HeaderName, HeaderValue};
 use std::env;
+use std::fmt::format;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
@@ -147,24 +148,24 @@ fn stream_response_to_proxy(
     };
 
     if let Err(e) = write_http_status_line(stream, &response, &mut influx_stream) {
-        send_influx(influx_stream);
-        return Err(anyhow!("Error streaming status line to HiveCore: {}", e));
+        let e_msg = format!("Error streaming status line to HiveCore: {}", e);
+        send_err_influx_with_req(&request, influx_stream, &e_msg);
+        return Err(anyhow!(e_msg));
     }
 
     if let Err(e) = write_http_headers(stream, &response, &mut influx_stream) {
-        send_influx(influx_stream);
-        return Err(anyhow!("Error streaming headers to HiveCore: {}", e));
+        let e_msg = format!("Error streaming headers to HiveCore: {}", e);
+        send_err_influx_with_req(&request, influx_stream, &e_msg);
+        return Err(anyhow!(e_msg));
     }
 
     if let Err(e) = stream_body(stream, response, &mut influx_stream) {
-        send_influx(influx_stream);
-        return Err(anyhow!("Error streaming body to HiveCore: {}", e));
+        let e_msg = format!("Error streaming body to HiveCore: {}", e);
+        send_err_influx_with_req(&request, influx_stream, &e_msg);
+        return Err(anyhow!(e_msg));
     }
 
-    // if response_code != 200 {
-    send_influx(influx_stream);
-    // }
-
+    send_success_influx_with_req(&request, influx_stream);
     info!("Stream ended. Response done.");
 
     Ok(request.modifies_poll())
@@ -277,5 +278,44 @@ fn send_influx(stream: Vec<u8>) {
         Ok(data) => DataPoint::builder("ollama").field("response", data),
         Err(x) => DataPoint::builder("ollama").field("utf8_error", x.to_string()),
     };
+    log_influx(vec![data_point]);
+}
+
+fn remove_newlines(input: &str) -> String {
+    // Replace carriage returns and newlines with a space.
+    input.replace("\r", " ").replace("\n", " ")
+}
+
+fn send_success_influx_with_req(req: &ProxyMessage, stream: Vec<u8>) {
+    let data_as_string = String::from_utf8(stream)
+        .unwrap_or_else(|_| "Invalid UTF-8".to_string());
+    let cleaned_data = remove_newlines(&data_as_string);
+
+    // Build data point without a client-side timestamp, so InfluxDB sets it automatically.
+    let data_point = DataPoint::builder("ollama")
+        .tag("protocol", req.protocol.clone())
+        .tag("method", req.method.clone())
+        .tag("uri", req.uri.clone())
+        .tag("status", "success")
+        .field("response", cleaned_data)
+        .field("response_size", data_as_string.len() as i64);
+
+    log_influx(vec![data_point]);
+}
+
+fn send_err_influx_with_req(req: &ProxyMessage, stream: Vec<u8>, err: &String) {
+    let data_as_string = String::from_utf8(stream)
+        .unwrap_or_else(|_| "Invalid UTF-8".to_string());
+    let cleaned_data = remove_newlines(&data_as_string);
+
+    let data_point = DataPoint::builder("ollama")
+        .tag("protocol", req.protocol.clone())
+        .tag("method", req.method.clone())
+        .tag("uri", req.uri.clone())
+        .tag("status", "error")
+        .field("error_message", err.to_string())
+        .field("response", cleaned_data)
+        .field("response_size", data_as_string.len() as i64);
+
     log_influx(vec![data_point]);
 }

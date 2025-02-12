@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-#[derive(Debug)]
+use serde::Serialize;
+
+#[derive(Debug, Serialize)]
 pub struct ProxyMessage {
     pub protocol: String, 
     pub method: String, 
