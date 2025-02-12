@@ -11,7 +11,6 @@ use std::time::Duration;
 
 use crate::logging::log_influx;
 use crate::messages::proxy_message::ProxyMessage;
-use crate::models::poller::Poller;
 use crate::models::tags::Tags;
 use crate::models::tags::Version;
 
@@ -51,7 +50,6 @@ pub fn poll(
         format!("POLL {model_name} HIVE\r\n")
     };
 
-    println!("{poll_target}");
     stream.write_all(poll_target.as_bytes())?;
     stream.flush()?;
     Ok(())

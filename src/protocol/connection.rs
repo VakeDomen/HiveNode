@@ -1,15 +1,12 @@
-use std::{env, net::TcpStream, sync::{Arc, RwLock}};
+use std::{env, net::TcpStream};
 use anyhow::{anyhow, Result};
-use chrono::{DateTime, Days, Utc};
+use chrono::{DateTime, Utc};
 use reqwest::blocking::Client;
-use lazy_static::lazy_static;
 
-use crate::{models::poller::Poller, protocol::network_util::{authenticate, poll, proxy}};
-use super::network_util::get_tags;
+use crate::protocol::network_util::{authenticate, poll, proxy};
+use super::state::{get_last_refresh, init_local_time, notify_refresh, refresh_poll_models};
 
-lazy_static! {
-    static ref LAST_REFRESH: Arc<RwLock<DateTime<Utc>>> = Arc::new(RwLock::new(Utc::now()));
-}
+
 
 pub fn run_protocol(nonce: u64) -> Result<()> {
     let proxy_server_url = env::var("HIVE_CORE_URL").expect("HIVE_CORE_URL");
@@ -52,29 +49,3 @@ pub fn run_protocol(nonce: u64) -> Result<()> {
         }
     }
 }
-
-fn notify_refresh() {
-    let mut last_refresh = LAST_REFRESH.write().unwrap();
-    *last_refresh = Utc::now();
-}
-
-fn init_local_time() -> DateTime<Utc> {
-    Utc::now().checked_sub_days(Days::new(1)).unwrap()
-}
-
-fn get_last_refresh() -> DateTime<Utc> {
-    *LAST_REFRESH.read().unwrap()
-}
-
-fn refresh_poll_models(
-    client: &Client, 
-    local_last_refresh: &mut DateTime<Utc>,
-    models: &mut String,
-) -> Result<()> {
-    *models = (*Poller::from(get_tags(client)?)
-                .get_models_target())
-                .to_string();
-    *local_last_refresh = get_last_refresh();
-    Ok(())
-}
-
