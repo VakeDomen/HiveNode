@@ -77,7 +77,7 @@ pub fn get_tags(client: &Client) -> Result<Tags> {
 
 
 pub fn get_ollama_version(client: &Client) -> String {
-    let req = ProxyMessage::new_http_get("/api/tags");
+    let req = ProxyMessage::new_http_get("/api/version");
     let resp = match make_ollama_request(&req, client) {
         Ok(resp) => resp,
         Err(_) => return "Unknown".to_string(),
