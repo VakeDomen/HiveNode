@@ -5,11 +5,11 @@ use once_cell::sync::Lazy;
 use reqwest::blocking::Client;
 use lazy_static::lazy_static;
 
-use crate::protocol::network_util::{authenticate, create_poller, poll, proxy};
+use crate::protocol::network_util::{authenticate, poll, proxy};
+
+use super::network_util::get_tags;
 
 
-
-pub static MODELS: Lazy<Arc<Mutex<String>>> = Lazy::new(|| Arc::new(Mutex::new("/".into())));
 
 lazy_static! {
     static ref LAST_REFRESH: Arc<RwLock<DateTime<Utc>>> = Arc::new(RwLock::new(Utc::now()));
@@ -22,8 +22,10 @@ pub fn run_protocol(nonce: u64) -> Result<()> {
     let client = Client::new();
     let mut local_refresh_time: DateTime<Utc> = init_local_time();
 
+    let mut models ="/".to_string();
 
-    if let Err(e) = refresh_poll_models(&client, &mut local_refresh_time) {
+
+    if let Err(e) = refresh_poll_models(&client, &mut local_refresh_time, &mut models) {
         return Err(anyhow!(format!("Error refreshing available models: {}", e)));
     };
 
@@ -36,17 +38,12 @@ pub fn run_protocol(nonce: u64) -> Result<()> {
         let global_refresh_time = get_last_refresh();
 
         if global_refresh_time > local_refresh_time {
-            if let Err(e) = refresh_poll_models(&client, &mut local_refresh_time) {
+            if let Err(e) = refresh_poll_models(&client, &mut local_refresh_time, &mut models) {
                 return Err(anyhow!(format!("Error refreshing models: {}", e)));
             };
         }
 
-        let models = {
-            let models = MODELS.lock().unwrap();
-            models.clone()
-        };
-
-        if let Err(e) = poll(&mut stream, models, &false) {
+        if let Err(e) = poll(&mut stream, &models, &false) {
             return Err(anyhow!(format!("Error polling HiveCore: {}", e)));
         };
 
@@ -74,10 +71,11 @@ fn get_last_refresh() -> DateTime<Utc> {
     *LAST_REFRESH.read().unwrap()
 }
 
-fn refresh_poll_models(client: &Client, local_last_refresh: &mut DateTime<Utc>) -> Result<()> {
-    let poller = create_poller(client)?;
-    let mut models = MODELS.lock().unwrap();
-    *models = poller.get_models_target();
+fn refresh_poll_models(
+    client: &Client, 
+    local_last_refresh: &mut DateTime<Utc>,
+    models: &mut String,
+) -> Result<()> {
     *local_last_refresh = get_last_refresh();
     Ok(())
 }

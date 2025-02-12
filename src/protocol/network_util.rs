@@ -29,15 +29,9 @@ pub fn authenticate(stream: &mut TcpStream, nonce: u64, client: &Client) -> Resu
     info!("Authenticated as: {}", response.uri);
     Ok(response.uri)
 }
-
-pub fn create_poller(client: &Client) -> Result<Poller> {
-    let tags = get_tags(client)?;
-    Ok(Poller::from(tags))
-}
-
 pub fn poll(
     stream: &mut TcpStream,
-    model_name: String,
+    model_name: &String,
     optimized_polling_sequence: &bool,
 ) -> Result<()> {
     // polling with "-" will tell the HiveCore to take the last seen
@@ -52,13 +46,12 @@ pub fn poll(
     // However, polling with X;Y;Z will set the sequence of models in
     // which the work is polled
     let poll_target = if *optimized_polling_sequence {
-        "-".to_string()
+        format!("POLL - HIVE\r\n")
     } else {
-        model_name
+        format!("POLL {model_name} HIVE\r\n")
     };
 
-    let poll_string = format!("POLL {poll_target} HIVE\r\n");
-    stream.write_all(poll_string.as_bytes())?;
+    stream.write_all(poll_target.as_bytes())?;
     stream.flush()?;
     Ok(())
 }
@@ -71,7 +64,7 @@ pub fn proxy(mut stream: &mut TcpStream, client: &Client) -> Result<bool> {
     }
 }
 
-fn get_tags(client: &Client) -> Result<Tags> {
+pub fn get_tags(client: &Client) -> Result<Tags> {
     let req = ProxyMessage::new_http_get("/api/tags");
     let resp = make_ollama_request(&req, client)?;
     Ok(Tags::try_from(resp)?)
