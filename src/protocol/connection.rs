@@ -31,6 +31,7 @@ pub fn run_protocol(nonce: u64) -> Result<()> {
             if let Err(e) = refresh_poll_models(&client, &mut local_refresh_time, &mut models) {
                 return Err(anyhow!(format!("Error refreshing models: {}", e)));
             };
+            opzimized_poll = false;
         }
 
         if let Err(e) = poll(&mut stream, &models, &opzimized_poll) {
