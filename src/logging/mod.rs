@@ -26,7 +26,6 @@ static INFLUX_CLIENT: LazyLock<Arc<Mutex<Option<InfluxInformation>>>> =
 
 struct InfluxInformation {
     client: Client,
-    node_key: String,
     tokio_handle: Handle,
 }
 
@@ -35,12 +34,9 @@ pub(crate) fn setup_influx_logging(tokio_handle: Handle) -> Result<(), Error> {
     let org = env::var("INFLUX_ORG")?;
     let token = env::var("INFLUX_TOKEN")?;
     let client = Client::new(host, org, token);
-    let node_key = env::var("HIVE_KEY")?;
-
     if let Ok(mut guard) = INFLUX_CLIENT.lock() {
         *guard = Some(InfluxInformation {
             client,
-            node_key,
             tokio_handle,
         });
         start_load_logging();
@@ -88,7 +84,6 @@ fn start_load_logging() {
 
                 for i in 0..total_gpus {
                     let device = nvml.device_by_index(i)?;
-                    let fan_speed = device.fan_speed(0)?; // Currently 17% on my system
                     let power_limit = device.enforced_power_limit()?; // 275k milliwatts on my system
                     let encoder_util = device.encoder_utilization()?; // Currently 0 on my system; Not encoding anything
                     let memory_info = device.memory_info()?; // Currently 1.63/6.37 GB used on my system
@@ -98,7 +93,6 @@ fn start_load_logging() {
                         .field("memory_used", memory_info.used as f64)
                         .field("memory_free", memory_info.free as f64)
                         .field("memory_total", memory_info.total as f64)
-                        .field("fan_speed", fan_speed as f64)
                         .field("power_limit", power_limit as f64)
                         .field("encoder_util", encoder_util.utilization as f64)
                         .field("sampling_period", encoder_util.sampling_period as f64)

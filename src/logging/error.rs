@@ -2,8 +2,9 @@ use std::env::VarError;
 
 use nvml_wrapper::error::NvmlError;
 
+#[derive(Debug)]
 pub struct Error {
-    message: String,
+    pub message: String,
 }
 
 impl From<VarError> for Error {

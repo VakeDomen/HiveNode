@@ -18,7 +18,9 @@ mod protocol;
 async fn main() -> anyhow::Result<()> {
     let _ = init_logging();
     let _ = dotenv();
-    let _ = setup_influx_logging(Handle::current());
+    if let Err(e) = setup_influx_logging(Handle::current()) {
+        println!("Not setting up influx: {}", e.message);
+    }
 
     let concurrent = env::var("CONCURRENT_RQEUESTS")
         .expect("CONCURRENT_RQEUESTS")

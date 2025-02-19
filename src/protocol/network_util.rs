@@ -5,7 +5,6 @@ use reqwest::blocking::Client;
 use reqwest::blocking::Response;
 use reqwest::header::{HeaderName, HeaderValue};
 use std::env;
-use std::fmt::format;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
@@ -269,16 +268,6 @@ fn write_to_both_streams(tcp: &mut TcpStream, second: &mut Vec<u8>, data: &[u8])
     tcp.write_all(data)?;
     second.extend_from_slice(data);
     Ok(())
-}
-
-/// Report a DataPoint with the message of the stream.
-fn send_influx(stream: Vec<u8>) {
-    let data_as_string = String::from_utf8(stream);
-    let data_point = match data_as_string {
-        Ok(data) => DataPoint::builder("ollama").field("response", data),
-        Err(x) => DataPoint::builder("ollama").field("utf8_error", x.to_string()),
-    };
-    log_influx(vec![data_point]);
 }
 
 fn remove_newlines(input: &str) -> String {
