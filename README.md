@@ -1,6 +1,12 @@
+<div align="center">
+  
+    <img alt="hivecore" height="200px" src="hivecore.webp">
+</div>
+
+
 # HiveNode
 
-HiveNode is the worker component of the Hive system. It connects to a central HiveCore proxy and runs local inference using Ollama. By running HiveNode on any machine (on-premise, cloud, or behind firewalls), you can seamlessly join that machine’s compute resources to the HiveCore network, making it available to serve requests routed by the central proxy.
+HiveNode is the worker component of the Hive system. It connects to a central [HiveCore](https://github.com/VakeDomen/HiveCore) proxy and runs local inference using [Ollama](https://ollama.com/). By running HiveNode on any machine (on-premise, cloud, or behind firewalls), you can seamlessly join that machine’s compute resources to the HiveCore network, making it available to serve requests routed by the central proxy.
 
 # Table of Contents
 
