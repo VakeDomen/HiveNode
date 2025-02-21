@@ -140,6 +140,11 @@ cargo build --release
     - Hive supports having multiple workers on the same machine, but each worker should have it's own token. (handy if multiple ollama servers are split among multiple GPUs)
 
 
+<div align="center">
+  
+    <img alt="hivecore" height="200px" src="flow.webp">
+</div>
+
 # 7. Logging & Monitoring
 HiveNode can log system metrics (like GPU usage, memory and requests proxied) to InfluxDB:
 - **Enable Influx Logging**: Provide `INFLUX_HOST`, `INFLUX_ORG`, and `INFLUX_TOKEN` in the `.env`.
