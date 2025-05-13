@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::RwLock, time::Duration};
+use std::{collections::HashMap, env, fmt::format, sync::RwLock, time::Duration};
 
 use bollard::{container::{Config, CreateContainerOptions, ListContainersOptions, RemoveContainerOptions, StartContainerOptions, StopContainerOptions}, image::CreateImageOptions, secret::{HostConfig, PortBinding}, Docker};
 use futures::TryStreamExt;
@@ -27,8 +27,12 @@ async fn find_running(container_name: &str) -> Result<Option<String>> {
 }
 
 pub async fn start_ollama_docker(models_dir: &str) -> anyhow::Result<String> {
+    let key = env::var("HIVE_KEY").expect("HIVE_KEY");
+    let port = env::var("OLLAMA_PORT").expect("OLLAMA_PORT");
 
-    if let Some(id) = find_running("ollama-hive").await? {
+
+    let container_name = format!("ollama-hive-{}", &key[..5]);
+    if let Some(id) = find_running(&container_name).await? {
         info!("Hive Ollama container already running...");
         return Ok(id);
     } 
@@ -85,10 +89,10 @@ pub async fn start_ollama_docker(models_dir: &str) -> anyhow::Result<String> {
     // port bindings
     let mut port_bindings = HashMap::new();
     port_bindings.insert(
-        "11434/tcp".to_string(),
+        format!("{}/tcp", port),
         Some(vec![PortBinding {
             host_ip: Some("0.0.0.0".to_string()),
-            host_port: Some("11434".to_string()),
+            host_port: Some(port.to_string()),
         }]),
     );
 
@@ -99,12 +103,13 @@ pub async fn start_ollama_docker(models_dir: &str) -> anyhow::Result<String> {
         ..Default::default()
     };
 
+    let bind = format!("{}/tcp", port);
     let create_opts = Config {
         image: Some("ollama/ollama:latest"),
         host_config: Some(host_config),
         exposed_ports: Some({
             let mut e = HashMap::new();
-            e.insert("11434/tcp", HashMap::new());
+            e.insert(bind.as_str(), HashMap::new());
             e
         }),
         ..Default::default()
@@ -112,7 +117,7 @@ pub async fn start_ollama_docker(models_dir: &str) -> anyhow::Result<String> {
 
     let container = docker
         .create_container::<&str, &str>(Some(CreateContainerOptions {
-                name: "ollama-hive", 
+                name: &container_name, 
                 platform: Default::default() 
             }),
             create_opts)
@@ -125,7 +130,7 @@ pub async fn start_ollama_docker(models_dir: &str) -> anyhow::Result<String> {
     let client = reqwest::blocking::Client::new();
     for _ in 0..20 {
         if client
-            .get("http://127.0.0.1:11434/api/version")
+            .get(format!("http://127.0.0.1:{}/api/version", port))
             .send()
             .is_ok()
         {
@@ -152,11 +157,12 @@ async fn stop_ollama_docker(id: &str) -> anyhow::Result<()> {
 }
 
 /// upgrade the ollama container in place, re-using the same host models_dir mount
-pub async fn upgrade_ollama_docker(
-    container_name: &str,
-    models_dir: &str,
-) -> Result<String> {
-    let _write_guard = DOCKER_UPGRADE_LOCK.write().unwrap();
+pub async fn upgrade_ollama_docker(models_dir: &str) -> Result<String> {
+    let key = env::var("HIVE_KEY").expect("HIVE_KEY");
+    let port = env::var("OLLAMA_PORT").expect("OLLAMA_PORT");
+    let container_name = format!("ollama-hive-{}", &key[..5]);
+
+
     let docker = Docker::connect_with_local_defaults()?;
 
     // 1 pull the newest image with a progress bar
@@ -206,59 +212,60 @@ pub async fn upgrade_ollama_docker(
     }
     pb_pull.finish_with_message("Image pulled");
 
-
+    let _write_guard = DOCKER_UPGRADE_LOCK.write().unwrap();
+    
     // 2 stop & remove the old container if it exists
-    let _ = docker.stop_container(container_name, None::<StopContainerOptions>).await;
+    let _ = docker.stop_container(&container_name, None::<StopContainerOptions>).await;
     let _ = docker.remove_container(
-        container_name,
+        &container_name,
         Some(RemoveContainerOptions { force: true, ..Default::default() }),
     ).await?;
 
     // 3 create & start a fresh container, mounting the same models_dir
-    let host_cfg = HostConfig {
-        binds: Some(vec![format!("{}:/models", models_dir)]),
-        port_bindings: Some({
-            let mut map = HashMap::new();
-            map.insert(
-                "11434/tcp".to_string(),
-                Some(vec![PortBinding {
-                    host_ip: Some("0.0.0.0".into()),
-                    host_port: Some("11434".into()),
-                }]),
-            );
-            map
-        }),
+    // port bindings
+    let mut port_bindings = HashMap::new();
+    let bind = format!("{}/tcp", port);
+    port_bindings.insert(
+        bind.clone(),
+        Some(vec![PortBinding {
+            host_ip: Some("0.0.0.0".to_string()),
+            host_port: Some(port.to_string()),
+        }]),
+    );
+
+    let host_config = HostConfig {
+        binds: Some(vec![format!("{}:/root/.ollama", models_dir)]),
+        port_bindings: Some(port_bindings),
         auto_remove: Some(true),
         ..Default::default()
     };
 
-    let cfg = Config {
+    let create_opts = Config {
         image: Some("ollama/ollama:latest"),
-        host_config: Some(host_cfg),
+        host_config: Some(host_config),
         exposed_ports: Some({
-            let mut m = HashMap::new();
-            m.insert("11434/tcp", HashMap::new());
-            m
+            let mut e = HashMap::new();
+            e.insert(bind.as_str(), HashMap::new());
+            e
         }),
         ..Default::default()
     };
 
     let container = docker
-        .create_container(
-            Some(CreateContainerOptions { name: container_name, ..Default::default() }),
-            cfg,
-        )
+        .create_container::<&str, &str>(Some(CreateContainerOptions {
+                name: &container_name, 
+                platform: Default::default() 
+            }),
+            create_opts)
         .await?;
     let id = container.id;
-    docker
-        .start_container(&id, None::<StartContainerOptions<String>>)
-        .await?;
+
 
     // 4 wait for Ollama’s HTTP API to come back up
     let client = Client::new();
     for _ in 0..20 {
         if client
-            .get("http://127.0.0.1:11434/api/version")
+            .get(format!("http://127.0.0.1:{}/api/version", port))
             .send()
             .is_ok()
         {
