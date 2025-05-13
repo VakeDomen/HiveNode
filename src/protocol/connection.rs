@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use reqwest::blocking::Client;
 
 use crate::protocol::network_util::{authenticate, poll, proxy};
-use super::state::{get_last_refresh, get_reboot, get_shutdown, init_local_time, notify_refresh, refresh_poll_models};
+use super::{docker::DOCKER_UPGRADE_LOCK, state::{get_last_refresh, get_reboot, get_shutdown, init_local_time, notify_refresh, refresh_poll_models}};
 
 
 
@@ -25,6 +25,9 @@ pub fn run_protocol(nonce: u64) -> Result<()> {
     };
     
     loop {
+
+        let _read_guard = DOCKER_UPGRADE_LOCK.read().unwrap();
+
         let global_refresh_time = get_last_refresh();
 
         if global_refresh_time > local_refresh_time {
