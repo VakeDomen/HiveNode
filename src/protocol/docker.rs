@@ -26,7 +26,8 @@ async fn find_running(container_name: &str) -> Result<Option<String>> {
     Ok(list.into_iter().next().map(|c| c.id.unwrap()))
 }
 
-pub async fn start_ollama_docker(models_dir: &str) -> anyhow::Result<String> {
+pub async fn start_ollama_docker() -> anyhow::Result<String> {
+    let models_dir = env::var("HIVE_OLLAMA_MODELS").expect("HIVE_OLLAMA_MODELS must be set");
     let key = env::var("HIVE_KEY").expect("HIVE_KEY");
     let port = env::var("OLLAMA_PORT").expect("OLLAMA_PORT");
 
@@ -142,7 +143,7 @@ pub async fn start_ollama_docker(models_dir: &str) -> anyhow::Result<String> {
     Ok(id)
 }
 
-async fn stop_ollama_docker(id: &str) -> anyhow::Result<()> {
+pub async fn stop_ollama_docker(id: &str) -> anyhow::Result<()> {
     let docker = Docker::connect_with_local_defaults()?;
     docker
         .remove_container(
@@ -157,7 +158,8 @@ async fn stop_ollama_docker(id: &str) -> anyhow::Result<()> {
 }
 
 /// upgrade the ollama container in place, re-using the same host models_dir mount
-pub async fn upgrade_ollama_docker(models_dir: &str) -> Result<String> {
+pub async fn upgrade_ollama_docker() -> Result<String> {
+    let models_dir = env::var("HIVE_OLLAMA_MODELS").expect("HIVE_OLLAMA_MODELS must be set");
     let key = env::var("HIVE_KEY").expect("HIVE_KEY");
     let port = env::var("OLLAMA_PORT").expect("OLLAMA_PORT");
     let container_name = format!("ollama-hive-{}", &key[..5]);

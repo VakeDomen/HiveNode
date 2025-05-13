@@ -15,6 +15,7 @@ use crate::models::tags::Tags;
 use crate::models::tags::Version;
 use crate::protocol::state::set_node_name;
 
+use super::docker::upgrade_ollama_docker;
 use super::state::set_reboot;
 use super::state::set_shutdown;
 
@@ -87,7 +88,7 @@ pub fn get_ollama_version(client: &Client) -> String {
     }
 }
 
-fn handle_hive_request(request: ProxyMessage, _stream: &mut TcpStream) -> Result<bool> {
+fn handle_hive_request(request: ProxyMessage, stream: &mut TcpStream) -> Result<bool> {
     if !request.method.eq("PONG") {
         info!("Recieved request from HiveCore: {:#?}", request);
     }
@@ -98,6 +99,16 @@ fn handle_hive_request(request: ProxyMessage, _stream: &mut TcpStream) -> Result
 
     if request.method.eq("SHUTDOWN") {
         set_shutdown(true);
+    }
+
+    if request.method.eq("UPDATE_OLLAMA") {
+        // let _ = futures::executor::block_on(upgrade_ollama_docker());
+        stream.write_all(b"HTTP/1.1 200 OK\r\n")?;
+        stream.write_all(b"Transfer-Encoding: chunked\r\n")?;
+        stream.write_all(b"Connection: close\r\n")?;
+        stream.write_all(b"\r\n")?;
+        stream.write_all(b"0\r\n\r\n")?;
+        stream.flush()?;
     }
 
     Ok(false)

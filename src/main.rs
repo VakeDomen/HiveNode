@@ -24,9 +24,8 @@ async fn main() -> anyhow::Result<()> {
     let _ = setup_influx_logging(Handle::current());
 
     // 1. bring up Ollama in Docker
-    let models_dir = env::var("HIVE_OLLAMA_MODELS")
-        .expect("HIVE_OLLAMA_MODELS must be set");
-    let container_id = start_ollama_docker(&models_dir).await?;
+    
+    let container_id = start_ollama_docker().await?;
     // point your code at the new local Ollama
     env::set_var("OLLAMA_URL", "http://127.0.0.1:11434");
 
@@ -55,9 +54,6 @@ async fn main() -> anyhow::Result<()> {
     for h in handles {
         let _ = h.join();
     }
-
-    // 3. tear down the Ollama container before exit
-    start_ollama_docker(&container_id).await?;
 
     Ok(())
 }
