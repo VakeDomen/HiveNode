@@ -67,7 +67,7 @@ pub async fn start_ollama_docker() -> anyhow::Result<String> {
     // 3. ensure the image is present (ProgressBar logic as before)
     info!("Checking for latest ollama/ollama docker image...");
     let pull_opts = CreateImageOptions {
-        from_image: "ollama/ollama",
+        from_image: "ollama/ollama:0.6.8",
         tag: "latest",
         ..Default::default()
     };
