@@ -3,8 +3,8 @@ use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use reqwest::blocking::Client;
 
-use crate::protocol::network_util::{authenticate, poll, proxy};
-use super::{docker::DOCKER_UPGRADE_LOCK, state::{get_last_refresh, get_reboot, get_shutdown, init_local_time, notify_refresh, refresh_poll_models}};
+use crate::protocol::network_util::{authenticate, poll};
+use super::{docker::DOCKER_UPGRADE_LOCK, network_util::{handle_hive_request, read_next_message, stream_response_to_proxy}, state::{get_last_refresh, get_reboot, get_shutdown, init_local_time, notify_refresh, refresh_poll_models}};
 
 
 
@@ -16,24 +16,33 @@ pub fn run_protocol(nonce: u64) -> Result<()> {
     let mut opzimized_poll = false;
     let mut models ="/".to_string();
 
-    if let Err(e) = refresh_poll_models(&client, &mut local_refresh_time, &mut models) {
-        return Err(anyhow!(format!("Error refreshing available models: {}", e)));
-    };
+    {
+        let _read_guard = DOCKER_UPGRADE_LOCK.read().unwrap();
+        
+        if let Err(e) = refresh_poll_models(&client, &mut local_refresh_time, &mut models) {
+            return Err(anyhow!(format!(
+                "Error refreshing available models: {}",
+                e
+            )));
+        }
 
-    if let Err(e) = authenticate(&mut stream, nonce, &client) {
-        return Err(anyhow!(format!("Error authenticating: {}", e)));
-    };
+        if let Err(e) = authenticate(&mut stream, nonce, &client) {
+            return Err(anyhow!(format!("Error authenticating: {}", e)));
+        }
+    }
     
     loop {
-
-        let _read_guard = DOCKER_UPGRADE_LOCK.read().unwrap();
 
         let global_refresh_time = get_last_refresh();
 
         if global_refresh_time > local_refresh_time {
-            if let Err(e) = refresh_poll_models(&client, &mut local_refresh_time, &mut models) {
-                return Err(anyhow!(format!("Error refreshing models: {}", e)));
-            };
+            {
+                let _read_guard = DOCKER_UPGRADE_LOCK.read().unwrap();
+
+                if let Err(e) = refresh_poll_models(&client, &mut local_refresh_time, &mut models) {
+                    return Err(anyhow!(format!("Error refreshing models: {}", e)));
+                };
+            }
             opzimized_poll = false;
         }
 
@@ -43,13 +52,21 @@ pub fn run_protocol(nonce: u64) -> Result<()> {
 
         opzimized_poll = true;
 
-        let should_refresh = match proxy(&mut stream, &client) {
-            Ok(should_refresh) => should_refresh,
-            Err(e) => return Err(anyhow!(format!("Failed to proxy request: {}", e))),
+        let should_refresh_result: Result<bool> =  {
+            let request = read_next_message(&mut stream)?;
+            match request.protocol.as_str() {
+                "HIVE" => handle_hive_request(request, &mut stream),
+                _ => {
+                    let _read_guard = DOCKER_UPGRADE_LOCK.read().unwrap();
+                    stream_response_to_proxy(request, &mut stream, &client)
+                },
+            }
         };
 
-        if should_refresh {
-            notify_refresh()
+        if let Ok(should_refresh) = should_refresh_result {
+            if should_refresh {
+                notify_refresh()
+            }
         }
 
         if get_reboot() || get_shutdown() {

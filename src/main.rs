@@ -5,6 +5,7 @@ use logging::setup_influx_logging;
 use protocol::connection::run_protocol;
 use protocol::docker::start_ollama_docker;
 use protocol::state::{get_shutdown, set_reboot};
+use tokio::task;
 use std::env;
 use std::thread::{sleep, spawn};
 use std::time::Duration;
@@ -50,6 +51,7 @@ async fn main() -> anyhow::Result<()> {
         }));
     }
 
+    
     // wait for all threads to finish
     for h in handles {
         let _ = h.join();

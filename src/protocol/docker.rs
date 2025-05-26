@@ -1,11 +1,14 @@
-use std::{collections::HashMap, env, fmt::format, sync::RwLock, time::Duration};
-
-use bollard::{container::{Config, CreateContainerOptions, ListContainersOptions, RemoveContainerOptions, StartContainerOptions, StopContainerOptions}, image::CreateImageOptions, secret::{HostConfig, PortBinding}, Docker};
+use bollard::errors::Error as BollardError; // Add this to your use statements
+use bollard::container::{Config, CreateContainerOptions, ListContainersOptions, RemoveContainerOptions, StartContainerOptions, StopContainerOptions};
+use bollard::image::CreateImageOptions;
+use bollard::secret::{HostConfig, PortBinding};
+use bollard::Docker;
 use futures::TryStreamExt;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
-use log::info;
+use log::{error, info, warn};
 use once_cell::sync::Lazy;
 use reqwest::blocking::Client;
+use std::{collections::HashMap, env, sync::RwLock, time::Duration};
 use tokio::time::sleep;
 use anyhow::Result;
 
@@ -31,63 +34,67 @@ pub async fn start_ollama_docker() -> anyhow::Result<String> {
     let key = env::var("HIVE_KEY").expect("HIVE_KEY");
     let port = env::var("OLLAMA_PORT").expect("OLLAMA_PORT");
 
-
     let container_name = format!("ollama-hive-{}", &key[..5]);
-    if let Some(id) = find_running(&container_name).await? {
-        info!("Hive Ollama container already running...");
-        return Ok(id);
-    } 
 
+    // 1. Check if it's already RUNNING. If so, we're done.
+    if let Some(id) = find_running(&container_name).await? {
+        info!("Hive Ollama container already running (ID: {}).", id);
+        return Ok(id);
+    }
+
+    // If not running, connect to Docker.
     let docker = Docker::connect_with_local_defaults()?;
 
-    // 1. ensure the image is present
+    // 2. Try to REMOVE any container (likely stopped) with the same name.
+    // This cleans up before we try to create.
+    info!("Ensuring no stopped container with name {} exists...", container_name);
+    match docker.remove_container(
+        &container_name,
+        Some(RemoveContainerOptions { force: true, ..Default::default() }), // Use force to remove even if in a weird state (but not running)
+    ).await {
+        Ok(_) => info!("Removed existing stopped container {}.", container_name),
+        Err(BollardError::DockerResponseServerError { status_code: 404, .. }) => {
+             info!("No existing container {} found. Good to proceed.", container_name);
+        }
+        Err(e) => {
+            // If another error occurs, something is wrong, so we should fail.
+            error!("Error trying to remove existing container {}: {}", container_name, e);
+            return Err(e.into());
+        }
+    }
+
+    // 3. ensure the image is present (ProgressBar logic as before)
+    info!("Checking for latest ollama/ollama docker image...");
     let pull_opts = CreateImageOptions {
         from_image: "ollama/ollama",
         tag: "latest",
         ..Default::default()
     };
-
-    let pb_pull = ProgressBar::new(0); // ProgressBar for image pulling
-    pb_pull.set_draw_target(ProgressDrawTarget::stdout());
-    // A good "sweet spot" style: spinner, elapsed time, bar, byte count, ETA, and message
-    pb_pull.set_style(
+    let pb_pull = ProgressBar::new(0); // ... (Set style as before) ...
+     pb_pull.set_style(
         ProgressStyle::with_template(
             "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] \
              {bytes}/{total_bytes} ({eta}) {wide_msg}",
         )
         .unwrap()
         .progress_chars("█▇▆▅▄▃▂   ")
-        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ "), // Common spinner characters
+        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ "),
     );
     pb_pull.set_message("Pulling ollama/ollama:latest...");
-
-    info!("Checking for latest ollama/ollama docker image..."); //
-    info!("Downloading latest ollama/ollama docker image...");
     let mut stream = docker.create_image(Some(pull_opts), None, None);
-    while let Some(pull_info) = stream.try_next().await? {
-        if let Some(status) = pull_info.status {
-            pb_pull.set_message(status);
-        }
-
+    while let Some(pull_info) = stream.try_next().await? { // ... (Handle progress as before) ...
+        if let Some(status) = pull_info.status { pb_pull.set_message(status); }
         if let Some(pd) = &pull_info.progress_detail {
             if let (Some(cur), Some(total)) = (pd.current, pd.total) {
-                if total > 0 { // Ensure total is valid before setting
-                    pb_pull.set_length(total as u64);
-                    pb_pull.set_position(cur as u64);
-                } else {
-                    pb_pull.tick(); // If no valid total/current, at least tick the spinner
-                }
-            } else {
-                pb_pull.tick(); // No current/total available
-            }
-        } else {
-            pb_pull.tick(); // No progress_detail, just a status update, so tick spinner
-        }
+                if total > 0 { pb_pull.set_length(total as u64); pb_pull.set_position(cur as u64); }
+                else { pb_pull.tick(); }
+            } else { pb_pull.tick(); }
+        } else { pb_pull.tick(); }
     }
     pb_pull.finish_with_message("Image pulled");
 
 
-    // port bindings
+    // 4. Set up config - ENSURE auto_remove IS GONE
     let mut port_bindings = HashMap::new();
     port_bindings.insert(
         format!("{}/tcp", port),
@@ -100,7 +107,7 @@ pub async fn start_ollama_docker() -> anyhow::Result<String> {
     let host_config = HostConfig {
         binds: Some(vec![format!("{}:/root/.ollama", models_dir)]),
         port_bindings: Some(port_bindings),
-        auto_remove: Some(true),
+        // auto_remove: Some(true), // <-- MAKE SURE THIS IS STILL REMOVED
         ..Default::default()
     };
 
@@ -116,49 +123,81 @@ pub async fn start_ollama_docker() -> anyhow::Result<String> {
         ..Default::default()
     };
 
+    // 5. Create the container (should succeed now)
+    info!("Creating container {}...", container_name);
     let container = docker
         .create_container::<&str, &str>(Some(CreateContainerOptions {
-                name: &container_name, 
-                platform: Default::default() 
+                name: &container_name,
+                platform: Default::default()
             }),
             create_opts)
         .await?;
-    let id = container.id;
+    let id = container.id.clone(); // Clone before moving
 
+    // 6. Start the container
+    info!("Starting container {} ({})...", container_name, id);
     docker.start_container(&id, None::<StartContainerOptions<String>>).await?;
 
-    // wait for health
+    // 7. wait for health (as before)
+    info!("Waiting for container to become healthy...");
     let client = reqwest::blocking::Client::new();
-    for _ in 0..20 {
+    for i in 0..20 {
         if client
             .get(format!("http://127.0.0.1:{}/api/version", port))
             .send()
             .is_ok()
         {
-            break;
+            info!("Container is healthy!");
+            return Ok(id); // Return success
         }
+        info!("Waiting... ({}/20)", i+1);
         sleep(Duration::from_millis(500)).await;
     }
 
-    Ok(id)
+    // If loop finishes without health, it's an error
+    Err(anyhow::anyhow!("Container did not become healthy in time."))
 }
 
+// Your stop_ollama_docker and upgrade_ollama_docker functions remain as they were.
+// Make sure upgrade_ollama_docker ALSO does NOT use auto_remove.
 pub async fn stop_ollama_docker(id: &str) -> anyhow::Result<()> {
+    // ... (as before) ...
     let docker = Docker::connect_with_local_defaults()?;
-    docker
-        .remove_container(
+    info!("Stopping container {}...", id);
+    match docker.stop_container(id, None::<StopContainerOptions>).await {
+         Ok(_) => info!("Stopped container {}", id),
+         Err(BollardError::DockerResponseServerError { status_code: 304, .. }) => {
+             info!("Container {} was already stopped.", id);
+         }
+         Err(BollardError::DockerResponseServerError { status_code: 404, .. }) => {
+            info!("Container {} not found for stopping.", id);
+        }
+        Err(e) => warn!("Error stopping container {}: {}", id, e),
+    }
+
+    info!("Removing container {}...", id);
+     match docker.remove_container(
             id,
             Some(RemoveContainerOptions {
-                force: true,
+                force: true, // Force helps if stop failed or didn't complete
                 ..Default::default()
             }),
         )
-        .await?;
+        .await {
+            Ok(_) => info!("Removed container {}", id),
+            Err(BollardError::DockerResponseServerError { status_code: 404, .. }) => {
+                info!("Container {} not found for removal.", id);
+            }
+            Err(e) => {
+                 error!("Failed to remove container {}: {}", id, e);
+                 return Err(e.into());
+            }
+        }
     Ok(())
 }
 
-/// upgrade the ollama container in place, re-using the same host models_dir mount
 pub async fn upgrade_ollama_docker() -> Result<String> {
+    // ... (as before, ensuring auto_remove is NOT used) ...
     let models_dir = env::var("HIVE_OLLAMA_MODELS").expect("HIVE_OLLAMA_MODELS must be set");
     let key = env::var("HIVE_KEY").expect("HIVE_KEY");
     let port = env::var("OLLAMA_PORT").expect("OLLAMA_PORT");
@@ -214,14 +253,37 @@ pub async fn upgrade_ollama_docker() -> Result<String> {
     }
     pb_pull.finish_with_message("Image pulled");
 
+    info!("Stopping Docker container");
+
+    warn!("Waiting to gain control of the docker connection from other threads");
     let _write_guard = DOCKER_UPGRADE_LOCK.write().unwrap();
-    
+    warn!("Got control!");
+
     // 2 stop & remove the old container if it exists
-    let _ = docker.stop_container(&container_name, None::<StopContainerOptions>).await;
-    let _ = docker.remove_container(
+    match docker.stop_container(&container_name, None::<StopContainerOptions>).await {
+        Ok(_) => info!("Stopped container {}", container_name),
+        Err(bollard::errors::Error::DockerResponseServerError { status_code: 404, .. }) => {
+            info!("Container {} already stopped or not found.", container_name);
+        }
+        Err(e) => warn!("Error stopping container {}: {}", container_name, e), // Or return Err(e.into()) if stop MUST succeed
+    }
+
+    match docker.remove_container(
         &container_name,
         Some(RemoveContainerOptions { force: true, ..Default::default() }),
-    ).await?;
+    ).await {
+        Ok(_) => info!("Removed container {}", container_name),
+        Err(bollard::errors::Error::DockerResponseServerError { status_code: 404, .. }) => {
+             info!("Container {} already removed or not found.", container_name);
+        }
+        Err(bollard::errors::Error::DockerResponseServerError { status_code: 409, message }) => {
+             warn!("Container {} removal conflict (409): {}. Will proceed.", container_name, message);
+        }
+        Err(e) => {
+            error!("Failed to remove container {}: {}", container_name, e);
+            return Err(e.into()); // Propagate other errors
+        }
+    }
 
     // 3 create & start a fresh container, mounting the same models_dir
     // port bindings
@@ -238,7 +300,7 @@ pub async fn upgrade_ollama_docker() -> Result<String> {
     let host_config = HostConfig {
         binds: Some(vec![format!("{}:/root/.ollama", models_dir)]),
         port_bindings: Some(port_bindings),
-        auto_remove: Some(true),
+        // auto_remove: Some(true), // <-- ENSURE REMOVED
         ..Default::default()
     };
 
@@ -253,17 +315,22 @@ pub async fn upgrade_ollama_docker() -> Result<String> {
         ..Default::default()
     };
 
+    info!("Creating new Docker container");
     let container = docker
         .create_container::<&str, &str>(Some(CreateContainerOptions {
-                name: &container_name, 
-                platform: Default::default() 
+                name: &container_name,
+                platform: Default::default()
             }),
             create_opts)
         .await?;
-    let id = container.id;
+    let id = container.id.clone();
+
+    info!("Starting new container {}...", id); // Add log
+    docker.start_container(&id, None::<StartContainerOptions<String>>).await?; // Start it
 
 
     // 4 wait for Ollama’s HTTP API to come back up
+    info!("Waiting for new Ollama container to respond");
     let client = Client::new();
     for _ in 0..20 {
         if client
@@ -275,6 +342,6 @@ pub async fn upgrade_ollama_docker() -> Result<String> {
         }
         sleep(Duration::from_millis(500)).await;
     }
-
+    info!("Done updating Ollama container");
     Ok(id)
 }

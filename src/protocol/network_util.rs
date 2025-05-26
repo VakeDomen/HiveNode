@@ -4,6 +4,7 @@ use log::{error, info, warn};
 use reqwest::blocking::Client;
 use reqwest::blocking::Response;
 use reqwest::header::{HeaderName, HeaderValue};
+use tokio::runtime::Runtime;
 use std::env;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
@@ -61,14 +62,6 @@ pub fn poll(
     Ok(())
 }
 
-pub fn proxy(mut stream: &mut TcpStream, client: &Client) -> Result<bool> {
-    let request = read_next_message(&mut stream)?;
-    match request.protocol.as_str() {
-        "HIVE" => handle_hive_request(request, stream),
-        _ => stream_response_to_proxy(request, &mut stream, client),
-    }
-}
-
 pub fn get_tags(client: &Client) -> Result<Tags> {
     let req = ProxyMessage::new_http_get("/api/tags");
     let resp = make_ollama_request(&req, client)?;
@@ -88,7 +81,7 @@ pub fn get_ollama_version(client: &Client) -> String {
     }
 }
 
-fn handle_hive_request(request: ProxyMessage, stream: &mut TcpStream) -> Result<bool> {
+pub fn handle_hive_request(request: ProxyMessage, stream: &mut TcpStream) -> Result<bool> {
     if !request.method.eq("PONG") {
         info!("Recieved request from HiveCore: {:#?}", request);
     }
@@ -102,16 +95,66 @@ fn handle_hive_request(request: ProxyMessage, stream: &mut TcpStream) -> Result<
     }
 
     if request.method.eq("UPDATE_OLLAMA") {
-        // let _ = futures::executor::block_on(upgrade_ollama_docker());
-        stream.write_all(b"HTTP/1.1 200 OK\r\n")?;
-        stream.write_all(b"Transfer-Encoding: chunked\r\n")?;
-        stream.write_all(b"Connection: close\r\n")?;
-        stream.write_all(b"\r\n")?;
-        stream.write_all(b"0\r\n\r\n")?;
-        stream.flush()?;
+        let _ = handle_ollama_update(stream);
     }
 
     Ok(false)
+}
+
+fn handle_ollama_update(stream: &mut TcpStream) -> Result<()> {
+
+    // let _ = upgrade_ollama_docker();
+    // stream.write_all(b"HTTP/1.1 200 OK\r\n")?;
+    // stream.write_all(b"Transfer-Encoding: chunked\r\n")?;
+    // stream.write_all(b"Connection: close\r\n")?;
+    // stream.write_all(b"\r\n")?;
+    // stream.write_all(b"0\r\n\r\n")?;
+    // stream.flush()?;
+    // Ok(())
+
+    warn!("Attempting to upgrade Ollama Docker container...");
+    // Create a new, temporary Tokio runtime
+    match Runtime::new() {
+        Ok(rt) => {
+            // Use the runtime's block_on method
+            rt.block_on(async {
+                if let Err(e) = upgrade_ollama_docker().await {
+                        error!("Failed to upgrade Ollama Docker: {}", e);
+                        // Decide how to respond on failure - maybe send an error back?
+                        // For now, we'll just try to send OK anyway, but you might change this.
+                } else {
+                    info!("Ollama Docker upgrade process initiated successfully.");
+                }
+            });
+
+            // Send a 200 OK response
+            stream.write_all(b"HTTP/1.1 200 OK\r\n")?;
+            stream.write_all(b"Transfer-Encoding: chunked\r\n")?;
+            stream.write_all(b"Connection: close\r\n")?;
+            stream.write_all(b"\r\n")?;
+            stream.write_all(b"0\r\n\r\n")?;
+            stream.flush()?;
+            info!("Sent OK response after upgrade attempt.");
+
+            // IMPORTANT: Since you're upgrading Ollama, it might be wise to trigger a reboot
+            // or at least a model refresh after this to ensure the node reconnects
+            // and reports the new version/state correctly.
+            // set_reboot(true); // Consider this
+
+        }
+        Err(e) => {
+            error!("Failed to create a Tokio runtime for Ollama upgrade: {}", e);
+            // Send an error response back if you can't even start the runtime
+            stream.write_all(b"HTTP/1.1 500 Internal Server Error\r\n")?;
+            stream.write_all(b"Content-Length: 0\r\n")?;
+            stream.write_all(b"Connection: close\r\n\r\n")?;
+            stream.write_all(b"\r\n")?;
+            stream.write_all(b"0\r\n\r\n")?;
+            stream.flush()?;
+        }
+    }
+    info!("Done updating Ollama Docker container...");
+    Ok(())
 }
 
 fn read_next_message_length(stream: &mut TcpStream) -> Result<usize> {
@@ -123,7 +166,7 @@ fn read_next_message_length(stream: &mut TcpStream) -> Result<usize> {
     Ok(i32::from_be_bytes(len_buf) as usize)
 }
 
-fn read_next_message(stream: &mut TcpStream) -> Result<ProxyMessage> {
+pub fn read_next_message(stream: &mut TcpStream) -> Result<ProxyMessage> {
     let message_length = read_next_message_length(stream)?;
     let mut buffer = vec![0u8; message_length];
     if let Err(e) = stream.read_exact(&mut buffer) {
@@ -136,7 +179,7 @@ fn read_next_message(stream: &mut TcpStream) -> Result<ProxyMessage> {
     Ok(ProxyMessage::from(raw_request))
 }
 
-fn stream_response_to_proxy(
+pub fn stream_response_to_proxy(
     request: ProxyMessage,
     stream: &mut TcpStream,
     client: &Client,
