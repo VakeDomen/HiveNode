@@ -300,7 +300,7 @@ pub async fn upgrade_ollama_docker() -> Result<String> {
     // 3 create & start a fresh container, mounting the same models_dir
     // port bindings
     let mut port_bindings = HashMap::new();
-    let bind = format!("{}/tcp", port);
+    let bind = format!("11434/tcp");
     port_bindings.insert(
         bind.clone(),
         Some(vec![PortBinding {
@@ -309,10 +309,13 @@ pub async fn upgrade_ollama_docker() -> Result<String> {
         }]),
     );
 
+    // Get GPU requests based on environment
+    let device_requests = get_gpu_device_requests(); // <-- USE THE HELPER
+
     let host_config = HostConfig {
         binds: Some(vec![format!("{}:/root/.ollama", models_dir)]),
         port_bindings: Some(port_bindings),
-        // auto_remove: Some(true), // <-- ENSURE REMOVED
+        device_requests,
         ..Default::default()
     };
 
