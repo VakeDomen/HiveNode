@@ -1,11 +1,12 @@
 use bollard::errors::Error as BollardError; // Add this to your use statements
 use bollard::container::{Config, CreateContainerOptions, ListContainersOptions, RemoveContainerOptions, StartContainerOptions, StopContainerOptions};
 use bollard::image::CreateImageOptions;
-use bollard::secret::{HostConfig, PortBinding};
+use bollard::secret::{DeviceRequest, HostConfig, PortBinding};
 use bollard::Docker;
 use futures::TryStreamExt;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use log::{error, info, warn};
+use nvml_wrapper::Nvml;
 use once_cell::sync::Lazy;
 use reqwest::blocking::Client;
 use std::{collections::HashMap, env, sync::RwLock, time::Duration};
@@ -104,12 +105,22 @@ pub async fn start_ollama_docker() -> anyhow::Result<String> {
         }]),
     );
 
+    // Get GPU requests based on environment
+    let device_requests = get_gpu_device_requests(); // <-- USE THE HELPER
+
     let host_config = HostConfig {
         binds: Some(vec![format!("{}:/root/.ollama", models_dir)]),
         port_bindings: Some(port_bindings),
-        // auto_remove: Some(true), // <-- MAKE SURE THIS IS STILL REMOVED
+        device_requests,
         ..Default::default()
     };
+
+    // let host_config = HostConfig {
+    //     binds: Some(vec![format!("{}:/root/.ollama", models_dir)]),
+    //     port_bindings: Some(port_bindings),
+    //     // auto_remove: Some(true), // <-- MAKE SURE THIS IS STILL REMOVED
+    //     ..Default::default()
+    // };
 
     let bind = format!("{}/tcp", port);
     let create_opts = Config {
@@ -141,7 +152,7 @@ pub async fn start_ollama_docker() -> anyhow::Result<String> {
     // 7. wait for health (as before)
     info!("Waiting for container to become healthy...");
     let client = reqwest::blocking::Client::new();
-    for i in 0..30 {
+    for i in 0..60 {
         if client
             .get(format!("http://127.0.0.1:{}/api/version", port))
             .send()
@@ -150,7 +161,7 @@ pub async fn start_ollama_docker() -> anyhow::Result<String> {
             info!("Container is healthy!");
             return Ok(id); // Return success
         }
-        info!("Waiting... ({}/30)", i+1);
+        info!("Waiting... ({}/60)", i+1);
         sleep(Duration::from_millis(1000)).await;
     }
 
@@ -344,4 +355,66 @@ pub async fn upgrade_ollama_docker() -> Result<String> {
     }
     info!("Done updating Ollama container");
     Ok(id)
+}
+
+
+fn get_gpu_device_requests() -> Option<Vec<DeviceRequest>> {
+    match env::var("GPU_PASSTHROUGH") {
+        Ok(gpu_setting) => {
+            let trimmed_setting = gpu_setting.trim();
+
+            if trimmed_setting.is_empty() {
+                info!("GPU_PASSTHROUGH is empty, running in CPU mode.");
+                return None;
+            }
+
+            // Check if NVML can initialize and if GPUs exist
+            let nvml = match Nvml::init() {
+                Ok(n) => n,
+                Err(e) => {
+                    warn!("NVML init failed ({}). Cannot enable GPU support, running in CPU mode.", e);
+                    return None;
+                }
+            };
+            match nvml.device_count() {
+                Ok(0) | Err(_) => {
+                    warn!("No NVIDIA GPUs found or count failed. Cannot enable GPU support, running in CPU mode.");
+                    return None;
+                }
+                Ok(_) => {} // GPUs found, proceed.
+            }
+
+            // Handle GPU settings
+            if trimmed_setting == "-1" {
+                info!("GPU_PASSTHROUGH=-1. Requesting all available GPUs.");
+                Some(vec![DeviceRequest {
+                    count: Some(-1), // Request all GPUs
+                    capabilities: Some(vec![vec!["gpu".to_string()]]),
+                    ..Default::default()
+                }])
+            } else {
+                let device_ids: Vec<String> = trimmed_setting
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                if device_ids.is_empty() {
+                    warn!("GPU_PASSTHROUGH='{}' provided no valid IDs. Running in CPU mode.", gpu_setting);
+                    None
+                } else {
+                    info!("GPU_PASSTHROUGH='{}'. Requesting GPUs: {:?}", gpu_setting, device_ids);
+                    Some(vec![DeviceRequest {
+                        device_ids: Some(device_ids), // Request specific GPUs
+                        capabilities: Some(vec![vec!["gpu".to_string()]]),
+                        ..Default::default()
+                    }])
+                }
+            }
+        }
+        Err(_) => {
+            info!("GPU_PASSTHROUGH not set, running in CPU mode.");
+            None // Env var not set, run in CPU mode
+        }
+    }
 }
