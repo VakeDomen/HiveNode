@@ -287,8 +287,7 @@ fn write_http_status_line(
 }
 
 fn make_ollama_request(request: &ProxyMessage, client: &Client) -> Result<Response> {
-    let ollama_port = env::var("OLLAMA_PORT").expect("OLLAMA_PORT");
-    let ollama_base_url = format!("http://localhost:{}", ollama_port);
+    let ollama_base_url = env::var("OLLAMA_URL").expect("OLLAMA_URL");
     let request_target = format!("{ollama_base_url}{}", request.uri);
 
     if request.protocol.eq("HIVE") {
