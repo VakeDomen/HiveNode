@@ -141,7 +141,7 @@ pub async fn start_ollama_docker() -> anyhow::Result<String> {
     // 7. wait for health (as before)
     info!("Waiting for container to become healthy...");
     let client = reqwest::blocking::Client::new();
-    for i in 0..20 {
+    for i in 0..30 {
         if client
             .get(format!("http://127.0.0.1:{}/api/version", port))
             .send()
@@ -150,8 +150,8 @@ pub async fn start_ollama_docker() -> anyhow::Result<String> {
             info!("Container is healthy!");
             return Ok(id); // Return success
         }
-        info!("Waiting... ({}/20)", i+1);
-        sleep(Duration::from_millis(500)).await;
+        info!("Waiting... ({}/30)", i+1);
+        sleep(Duration::from_millis(1000)).await;
     }
 
     // If loop finishes without health, it's an error
