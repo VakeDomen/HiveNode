@@ -98,7 +98,7 @@ pub async fn start_ollama_docker() -> anyhow::Result<String> {
     // 4. Set up config - ENSURE auto_remove IS GONE
     let mut port_bindings = HashMap::new();
     port_bindings.insert(
-        format!("{}/tcp", port),
+        format!("11434/tcp"),
         Some(vec![PortBinding {
             host_ip: Some("0.0.0.0".to_string()),
             host_port: Some(port.to_string()),
@@ -122,7 +122,7 @@ pub async fn start_ollama_docker() -> anyhow::Result<String> {
     //     ..Default::default()
     // };
 
-    let bind = format!("{}/tcp", port);
+    let bind = format!("11434/tcp");
     let create_opts = Config {
         image: Some("ollama/ollama:latest"),
         host_config: Some(host_config),
@@ -212,6 +212,7 @@ pub async fn upgrade_ollama_docker() -> Result<String> {
     let models_dir = env::var("HIVE_OLLAMA_MODELS").expect("HIVE_OLLAMA_MODELS must be set");
     let key = env::var("HIVE_KEY").expect("HIVE_KEY");
     let port = env::var("OLLAMA_PORT").expect("OLLAMA_PORT");
+    let ollama_url = env::var("OLLAMA_URL").expect("OLLAMA_URL");
     let container_name = format!("ollama-hive-{}", &key[..5]);
 
 
@@ -345,7 +346,7 @@ pub async fn upgrade_ollama_docker() -> Result<String> {
     let client = Client::new();
     for _ in 0..20 {
         if client
-            .get(format!("http://127.0.0.1:{}/api/version", port))
+            .get(format!("{}/api/version", ollama_url))
             .send()
             .is_ok()
         {

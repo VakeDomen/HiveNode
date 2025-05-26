@@ -28,7 +28,8 @@ async fn main() -> anyhow::Result<()> {
     
     let container_id = start_ollama_docker().await?;
     // point your code at the new local Ollama
-    env::set_var("OLLAMA_URL", "http://127.0.0.1:11434");
+    let ollama_port = env::var("OLLAMA_PORT").expect("OLLAMA_PORT");
+    env::set_var("OLLAMA_URL", format!("http://127.0.0.1:{}", ollama_port));
 
     // 2. spin up your worker threads as before
     let concurrent = env::var("CONCURRENT_REQUESTS")
