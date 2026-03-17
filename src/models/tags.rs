@@ -1,7 +1,7 @@
-use reqwest::blocking::Response;
-use std::convert::TryFrom;
-use serde::{Deserialize, Serialize};
 use anyhow::Result;
+use reqwest::blocking::Response;
+use serde::{Deserialize, Serialize};
+use std::convert::TryFrom;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ModelDetails {
@@ -37,7 +37,6 @@ impl TryFrom<Response> for Tags {
         Ok(models_response)
     }
 }
-
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Version {

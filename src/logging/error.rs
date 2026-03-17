@@ -1,4 +1,5 @@
 use std::env::VarError;
+use std::fmt::{Display, Formatter};
 
 use nvml_wrapper::error::NvmlError;
 
@@ -21,3 +22,11 @@ impl From<NvmlError> for Error {
         }
     }
 }
+
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for Error {}

@@ -50,11 +50,13 @@ pub(crate) fn log_influx(data: Vec<DataPointBuilder>) {
             let clone = influx.client.clone();
 
             let data: Vec<DataPoint> = data
-                
                 .into_iter()
-                .filter_map(|x| x
-                    .tag("id", Uuid::new_v4().to_string())
-                    .tag("node", get_node_name()).build().ok())
+                .filter_map(|x| {
+                    x.tag("id", Uuid::new_v4().to_string())
+                        .tag("node", get_node_name())
+                        .build()
+                        .ok()
+                })
                 .collect();
             influx.tokio_handle.spawn(async move {
                 if let Err(e) = clone.write("HiveCore", stream::iter(data)).await {
@@ -118,7 +120,7 @@ fn start_load_logging() {
                 );
 
                 log_influx(data_points);
-                
+
                 system.refresh_all();
             }
         });

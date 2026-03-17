@@ -1,21 +1,9 @@
 use chrono::Local;
-use log::{Level, LevelFilter, Metadata, Record, SetLoggerError};
-use colog::{basic_builder, format::{default_level_color, CologStyle}};
-
-struct SimpleLogger;
-impl log::Log for SimpleLogger {
-    fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= Level::Info
-    }
-
-    fn log(&self, record: &Record) {
-        if self.enabled(record.metadata()) {
-            println!("{} - {}", record.level(), record.args());
-        }
-    }
-
-    fn flush(&self) {}
-}
+use colog::{
+    basic_builder,
+    format::{default_level_color, CologStyle},
+};
+use log::{Level, LevelFilter, SetLoggerError};
 
 pub struct CustomPrefixToken;
 impl CologStyle for CustomPrefixToken {
@@ -29,7 +17,6 @@ impl CologStyle for CustomPrefixToken {
     }
 }
 
-
 pub fn init_logging() -> Result<(), SetLoggerError> {
     // build the logger
     let mut builder = basic_builder();
@@ -39,7 +26,7 @@ pub fn init_logging() -> Result<(), SetLoggerError> {
     builder.filter(None, LevelFilter::Debug);
     // but “bollard” and “hyper” only at Warn+
     builder.filter(Some("bollard"), LevelFilter::Warn);
-    builder.filter(Some("hyper"),  LevelFilter::Warn);
+    builder.filter(Some("hyper"), LevelFilter::Warn);
     // (optional) dial down reqwest if it’s chatty
     builder.filter(Some("reqwest"), LevelFilter::Warn);
     // now install it

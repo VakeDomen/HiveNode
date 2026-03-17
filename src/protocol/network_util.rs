@@ -4,19 +4,20 @@ use log::{error, info, warn};
 use reqwest::blocking::Client;
 use reqwest::blocking::Response;
 use reqwest::header::{HeaderName, HeaderValue};
-use tokio::runtime::Runtime;
 use std::env;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
+use std::thread;
 use std::time::Duration;
+use tokio::runtime::Runtime;
 
 use crate::logging::log_influx;
 use crate::messages::proxy_message::ProxyMessage;
 use crate::models::tags::Tags;
 use crate::models::tags::Version;
-use crate::protocol::state::set_node_name;
+use crate::protocol::state::{notify_refresh, set_node_name};
 
-use super::docker::upgrade_ollama_docker;
+use super::docker::{is_docker_managed, upgrade_ollama_docker};
 use super::state::set_reboot;
 use super::state::set_shutdown;
 
@@ -68,7 +69,6 @@ pub fn get_tags(client: &Client) -> Result<Tags> {
     Ok(Tags::try_from(resp)?)
 }
 
-
 pub fn get_ollama_version(client: &Client) -> String {
     let req = ProxyMessage::new_http_get("/api/version");
     let resp = match make_ollama_request(&req, client) {
@@ -81,79 +81,86 @@ pub fn get_ollama_version(client: &Client) -> String {
     }
 }
 
-pub fn handle_hive_request(request: ProxyMessage, stream: &mut TcpStream) -> Result<bool> {
-    if !request.method.eq("PONG") {
+pub fn handle_control_request(request: &ProxyMessage, stream: &mut TcpStream) -> Result<bool> {
+    if request.protocol == "HIVE" && request.method != "PONG" {
         info!("Recieved request from HiveCore: {:#?}", request);
     }
 
-    if request.method.eq("REBOOT") {
-        set_reboot(true);
-    }
+    let command = match request.worker_command() {
+        Some(command) => command,
+        None => return Ok(false),
+    };
 
-    if request.method.eq("SHUTDOWN") {
-        set_shutdown(true);
-    }
-
-    if request.method.eq("UPDATE_OLLAMA") {
-        let _ = handle_ollama_update(stream);
+    match command {
+        "REBOOT" => {
+            set_reboot(true);
+            write_http_response(stream, "200 OK", "HiveNode will reconnect.\n")?;
+        }
+        "SHUTDOWN" => {
+            set_shutdown(true);
+            write_http_response(stream, "200 OK", "HiveNode is shutting down.\n")?;
+        }
+        "UPDATE" | "UPDATE_OLLAMA" => handle_ollama_update(stream)?,
+        _ => {
+            warn!("Ignoring unknown HiveCore command: {}", command);
+            write_http_response(stream, "400 Bad Request", "Unknown worker command.\n")?;
+        }
     }
 
     Ok(false)
 }
 
 fn handle_ollama_update(stream: &mut TcpStream) -> Result<()> {
-
-    // let _ = upgrade_ollama_docker();
-    // stream.write_all(b"HTTP/1.1 200 OK\r\n")?;
-    // stream.write_all(b"Transfer-Encoding: chunked\r\n")?;
-    // stream.write_all(b"Connection: close\r\n")?;
-    // stream.write_all(b"\r\n")?;
-    // stream.write_all(b"0\r\n\r\n")?;
-    // stream.flush()?;
-    // Ok(())
-
-    warn!("Attempting to upgrade Ollama Docker container...");
-    // Create a new, temporary Tokio runtime
-    match Runtime::new() {
-        Ok(rt) => {
-            // Use the runtime's block_on method
-            rt.block_on(async {
-                if let Err(e) = upgrade_ollama_docker().await {
-                        error!("Failed to upgrade Ollama Docker: {}", e);
-                        // Decide how to respond on failure - maybe send an error back?
-                        // For now, we'll just try to send OK anyway, but you might change this.
-                } else {
-                    info!("Ollama Docker upgrade process initiated successfully.");
-                }
-            });
-
-            // Send a 200 OK response
-            stream.write_all(b"HTTP/1.1 200 OK\r\n")?;
-            stream.write_all(b"Transfer-Encoding: chunked\r\n")?;
-            stream.write_all(b"Connection: close\r\n")?;
-            stream.write_all(b"\r\n")?;
-            stream.write_all(b"0\r\n\r\n")?;
-            stream.flush()?;
-            info!("Sent OK response after upgrade attempt.");
-
-            // IMPORTANT: Since you're upgrading Ollama, it might be wise to trigger a reboot
-            // or at least a model refresh after this to ensure the node reconnects
-            // and reports the new version/state correctly.
-            // set_reboot(true); // Consider this
-
-        }
-        Err(e) => {
-            error!("Failed to create a Tokio runtime for Ollama upgrade: {}", e);
-            // Send an error response back if you can't even start the runtime
-            stream.write_all(b"HTTP/1.1 500 Internal Server Error\r\n")?;
-            stream.write_all(b"Content-Length: 0\r\n")?;
-            stream.write_all(b"Connection: close\r\n\r\n")?;
-            stream.write_all(b"\r\n")?;
-            stream.write_all(b"0\r\n\r\n")?;
-            stream.flush()?;
-        }
+    if !is_docker_managed() {
+        warn!("Ignoring UPDATE_OLLAMA because HiveNode is using an external Ollama instance.");
+        write_http_response(
+            stream,
+            "409 Conflict",
+            "UPDATE_OLLAMA is only available when OLLAMA_MODE=docker.\n",
+        )?;
+        return Ok(());
     }
-    info!("Done updating Ollama Docker container...");
+
+    write_http_response(
+        stream,
+        "202 Accepted",
+        "Ollama Docker update started. HiveNode will reconnect when ready.\n",
+    )?;
+
+    thread::spawn(|| {
+        warn!("Attempting to upgrade Ollama Docker container...");
+        match Runtime::new() {
+            Ok(rt) => {
+                let upgrade_result = rt.block_on(async { upgrade_ollama_docker().await });
+                match upgrade_result {
+                    Ok(_) => {
+                        info!("Ollama Docker upgrade completed successfully.");
+                        notify_refresh();
+                        set_reboot(true);
+                    }
+                    Err(e) => {
+                        error!("Failed to upgrade Ollama Docker: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to create a Tokio runtime for Ollama upgrade: {}", e);
+            }
+        }
+        info!("Done updating Ollama Docker container...");
+    });
+
+    Ok(())
+}
+
+fn write_http_response(stream: &mut TcpStream, status: &str, body: &str) -> Result<()> {
+    let body_len = body.len();
+    stream.write_all(format!("HTTP/1.1 {status}\r\n").as_bytes())?;
+    stream.write_all(format!("Content-Length: {body_len}\r\n").as_bytes())?;
+    stream.write_all(b"Content-Type: text/plain; charset=utf-8\r\n")?;
+    stream.write_all(b"Connection: close\r\n\r\n")?;
+    stream.write_all(body.as_bytes())?;
+    stream.flush()?;
     Ok(())
 }
 
@@ -184,7 +191,7 @@ pub fn stream_response_to_proxy(
     stream: &mut TcpStream,
     client: &Client,
 ) -> Result<bool> {
-    info!("Recieved Ollama request.");
+    info!("Recieved Ollama request. {:#?}", request);
     let response = make_ollama_request(&request, client)?;
     let response_code = response.status().as_u16();
     let mut influx_stream: Vec<u8> = vec![];
@@ -314,7 +321,9 @@ fn make_ollama_request(request: &ProxyMessage, client: &Client) -> Result<Respon
     }
 
     // Send the request and get the response
-    Ok(request_builder.timeout(Duration::from_secs(60 * 30)).send()?)
+    Ok(request_builder
+        .timeout(Duration::from_secs(60 * 30))
+        .send()?)
 }
 
 /// Writes to both streams simultaneously. Exists to reduce code duplication.
@@ -330,8 +339,7 @@ fn remove_newlines(input: &str) -> String {
 }
 
 fn send_success_influx_with_req(req: &ProxyMessage, stream: Vec<u8>, response_code: u16) {
-    let data_as_string = String::from_utf8(stream)
-        .unwrap_or_else(|_| "Invalid UTF-8".to_string());
+    let data_as_string = String::from_utf8(stream).unwrap_or_else(|_| "Invalid UTF-8".to_string());
     let cleaned_data = remove_newlines(&data_as_string);
 
     // Build data point without a client-side timestamp, so InfluxDB sets it automatically.
@@ -348,8 +356,7 @@ fn send_success_influx_with_req(req: &ProxyMessage, stream: Vec<u8>, response_co
 }
 
 fn send_err_influx_with_req(req: &ProxyMessage, stream: Vec<u8>, err: &String) {
-    let data_as_string = String::from_utf8(stream)
-        .unwrap_or_else(|_| "Invalid UTF-8".to_string());
+    let data_as_string = String::from_utf8(stream).unwrap_or_else(|_| "Invalid UTF-8".to_string());
     let cleaned_data = remove_newlines(&data_as_string);
 
     let data_point = DataPoint::builder("ollama")

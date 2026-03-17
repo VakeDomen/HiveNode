@@ -1,2 +1,2 @@
-pub mod tags;
 pub mod poller;
+pub mod tags;

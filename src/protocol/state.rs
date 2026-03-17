@@ -1,14 +1,13 @@
 use std::sync::{Arc, RwLock};
 
+use anyhow::Result;
 use chrono::{DateTime, Days, Utc};
 use lazy_static::lazy_static;
 use reqwest::blocking::Client;
-use anyhow::Result;
 
 use crate::models::poller::Poller;
 
 use super::network_util::get_tags;
-
 
 lazy_static! {
     static ref LAST_REFRESH: Arc<RwLock<DateTime<Utc>>> = Arc::new(RwLock::new(Utc::now()));
@@ -16,7 +15,6 @@ lazy_static! {
     static ref REBOOT: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     static ref SHUTDOWN: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 }
-
 
 pub fn set_reboot(b: bool) {
     let mut rbt = REBOOT.write().unwrap();
@@ -59,14 +57,11 @@ pub fn get_last_refresh() -> DateTime<Utc> {
 }
 
 pub fn refresh_poll_models(
-    client: &Client, 
+    client: &Client,
     local_last_refresh: &mut DateTime<Utc>,
     models: &mut String,
 ) -> Result<()> {
-    *models = (*Poller::from(get_tags(client)?)
-                .get_models_target())
-                .to_string();
+    *models = (*Poller::from(get_tags(client)?).get_models_target()).to_string();
     *local_last_refresh = get_last_refresh();
     Ok(())
 }
-
