@@ -61,10 +61,7 @@ impl ProxyMessage {
 
     pub fn worker_command(&self) -> Option<&str> {
         fn is_supported_worker_command(command: &str) -> bool {
-            matches!(
-                command,
-                "REBOOT" | "SHUTDOWN" | "UPDATE" | "UPDATE_OLLAMA"
-            )
+            matches!(command, "REBOOT" | "SHUTDOWN" | "UPDATE" | "UPDATE_OLLAMA")
         }
 
         match (
@@ -93,6 +90,7 @@ impl ProxyMessage {
         ) {
             ("HTTP/1.1", "POST", "/api/pull") => true,
             ("HTTP/1.1", "DELETE", "/api/delete") => true,
+            ("HTTP/1.1", "GET", "/api/tags") => true,
             (_, _, _) => false,
         }
     }
