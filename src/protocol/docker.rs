@@ -66,6 +66,25 @@ pub async fn configure_ollama_runtime() -> Result<()> {
     Ok(())
 }
 
+pub fn configure_ollama_runtime_blocking() -> Result<()> {
+    match get_ollama_mode()? {
+        OllamaMode::Docker => {
+            // Serialize Docker-backed runtime reconciliation so concurrent worker
+            // threads do not all try to recreate the same container at once.
+            let _write_guard = DOCKER_UPGRADE_LOCK.write().unwrap();
+            let rt = tokio::runtime::Runtime::new()
+                .context("Failed to create Tokio runtime for Ollama startup")?;
+            rt.block_on(configure_ollama_runtime())
+        }
+        OllamaMode::External => {
+            let ollama_url =
+                env::var("OLLAMA_URL").context("OLLAMA_URL must be set in external mode")?;
+            info!("Configured external Ollama at {ollama_url}");
+            Ok(())
+        }
+    }
+}
+
 async fn find_running(container_name: &str) -> Result<Option<String>> {
     let docker = Docker::connect_with_local_defaults()?;
     let opts = ListContainersOptions::<String> {
@@ -81,18 +100,60 @@ async fn find_running(container_name: &str) -> Result<Option<String>> {
     Ok(list.into_iter().next().and_then(|c| c.id))
 }
 
+async fn wait_for_ollama_http_ready(
+    base_url: &str,
+    attempts: usize,
+    interval: Duration,
+) -> Result<()> {
+    let client = Client::new();
+
+    for attempt in 1..=attempts {
+        match client.get(format!("{base_url}/api/version")).send() {
+            Ok(response) if response.status().is_success() => {
+                info!("Ollama API is ready at {base_url}");
+                return Ok(());
+            }
+            Ok(response) => {
+                info!(
+                    "Waiting for Ollama API at {base_url} ({attempt}/{attempts}): HTTP {}",
+                    response.status()
+                );
+            }
+            Err(error) => {
+                info!("Waiting for Ollama API at {base_url} ({attempt}/{attempts}): {error}");
+            }
+        }
+
+        sleep(interval).await;
+    }
+
+    Err(anyhow::anyhow!(
+        "Ollama API at {base_url} did not become ready in time."
+    ))
+}
+
 pub async fn start_ollama_docker() -> anyhow::Result<String> {
     let models_dir =
         env::var("HIVE_OLLAMA_MODELS").context("HIVE_OLLAMA_MODELS must be set in docker mode")?;
     let key = env::var("HIVE_KEY").context("HIVE_KEY must be set")?;
     let port = env::var("OLLAMA_PORT").context("OLLAMA_PORT must be set in docker mode")?;
+    let ollama_url = format!("http://127.0.0.1:{port}");
 
     let container_name = format!("ollama-hive-{}", &key[..5]);
 
-    // 1. Check if it's already RUNNING. If so, we're done.
+    // 1. Check if it's already RUNNING. If the HTTP endpoint is not reachable,
+    // recycle the container instead of trusting Docker's running state.
     if let Some(id) = find_running(&container_name).await? {
         info!("Hive Ollama container already running (ID: {}).", id);
-        return Ok(id);
+        match wait_for_ollama_http_ready(&ollama_url, 5, Duration::from_secs(1)).await {
+            Ok(()) => return Ok(id),
+            Err(error) => {
+                warn!(
+                    "Running Ollama container {} is not reachable at {}: {}. Recreating it.",
+                    container_name, ollama_url, error
+                );
+            }
+        }
     }
 
     // If not running, connect to Docker.
@@ -218,21 +279,9 @@ pub async fn start_ollama_docker() -> anyhow::Result<String> {
         .await?;
 
     info!("Waiting for container to become healthy...");
-    let client = reqwest::blocking::Client::new();
-    for i in 0..60 {
-        if client
-            .get(format!("http://127.0.0.1:{}/api/version", port))
-            .send()
-            .is_ok()
-        {
-            info!("Container is healthy!");
-            return Ok(id);
-        }
-        info!("Waiting... ({}/60)", i + 1);
-        sleep(Duration::from_millis(1000)).await;
-    }
-
-    Err(anyhow::anyhow!("Container did not become healthy in time."))
+    wait_for_ollama_http_ready(&ollama_url, 60, Duration::from_secs(1)).await?;
+    info!("Container is healthy!");
+    Ok(id)
 }
 
 pub async fn upgrade_ollama_docker() -> Result<String> {
@@ -389,17 +438,7 @@ pub async fn upgrade_ollama_docker() -> Result<String> {
         .await?;
 
     info!("Waiting for new Ollama container to respond");
-    let client = Client::new();
-    for _ in 0..20 {
-        if client
-            .get(format!("{}/api/version", ollama_url))
-            .send()
-            .is_ok()
-        {
-            break;
-        }
-        sleep(Duration::from_millis(500)).await;
-    }
+    wait_for_ollama_http_ready(&ollama_url, 20, Duration::from_millis(500)).await?;
     info!("Done updating Ollama container");
     Ok(id)
 }

@@ -3,7 +3,7 @@ use log::{error, warn};
 use logging::logger::init_logging;
 use logging::setup_influx_logging;
 use protocol::connection::run_protocol;
-use protocol::docker::configure_ollama_runtime;
+use protocol::docker::{configure_ollama_runtime, configure_ollama_runtime_blocking};
 use protocol::state::{get_shutdown, set_reboot};
 use std::thread::{sleep, spawn};
 use std::time::Duration;
@@ -33,6 +33,13 @@ async fn main() -> anyhow::Result<()> {
     for _ in 0..concurrent {
         let movable_nonce = nonce;
         handles.push(spawn(move || loop {
+            if let Err(e) = configure_ollama_runtime_blocking() {
+                error!("Failed to ensure Ollama runtime before reconnect: {}", e);
+                warn!("Waiting {}s before reconnecting", reconnect_secs);
+                sleep(Duration::from_secs(reconnect_secs));
+                continue;
+            }
+
             if let Err(e) = run_protocol(movable_nonce) {
                 error!("Connection to proxy ended: {}", e);
                 warn!("Waiting {}s before reconnecting", reconnect_secs);
