@@ -1,5 +1,3 @@
-use super::tags::Tags;
-
 #[derive(Debug, Clone)]
 pub struct Poller {
     models: Vec<String>,
@@ -16,17 +14,9 @@ impl Poller {
     }
 }
 
-impl From<Tags> for Poller {
-    fn from(tags: Tags) -> Self {
-        let mut models = vec![];
+impl From<Vec<String>> for Poller {
+    fn from(models: Vec<String>) -> Self {
         let default = "/".into();
-        for model in tags.models.into_iter() {
-            let name = model.name;
-            if name.contains(":latest") {
-                models.push(name.clone().replace(":latest", ""));
-            }
-            models.push(name);
-        }
         Self {
             models,
             index: 0,

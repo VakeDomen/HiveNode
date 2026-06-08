@@ -106,14 +106,29 @@ OLLAMA_URL=http://localhost:11434
 CONCURRENT_REQUESTS=4
 ```
 
+A sample `.env` for an external vLLM server:
+```ini
+HIVE_CORE_URL=hivecore.example.com:7777
+HIVE_KEY=my-secret-key
+INFERENCE_BACKEND=vllm
+VLLM_URL=http://localhost:8000
+CONCURRENT_REQUESTS=4
+
+# Optional, if vLLM was started with an API key.
+VLLM_API_KEY=token-abc123
+```
 
 - `HIVE_CORE_URL`: Where HiveNode connects to HiveCore (must match HiveCore’s `NODE_CONNECTION_PORT`, by default `7777`).
 - `HIVE_KEY`: The Worker key from HiveCore’s admin interface. Required for authentication.
+- `INFERENCE_BACKEND`: Optional. Defaults to `ollama`. Set to `vllm` to advertise and proxy an external vLLM server.
 - `OLLAMA_MODE`: `docker` by default. Set `external` to use an existing Ollama instance instead of Docker-managed Ollama.
 - `OLLAMA_PORT`: Host port for the Docker-managed Ollama container. Required in `docker` mode.
 - `HIVE_OLLAMA_MODELS`: Host directory mounted into the Docker-managed Ollama container for model storage. Required in `docker` mode.
 - `GPU_PASSTHROUGH`: Optional GPU selection for Docker mode. Use `-1` for all GPUs, a comma-separated list such as `0,1` for specific GPUs, or leave unset for CPU mode.
 - `OLLAMA_URL`: Required only in `external` mode. The local or remote address of the Ollama service.
+- `BACKEND_URL`: Optional backend URL override. For vLLM this should be the server origin, such as `http://localhost:8000`; HiveCore should send `/v1/...` request paths.
+- `VLLM_URL`: Required for vLLM if `BACKEND_URL` is not set. This should be the server origin, such as `http://localhost:8000`.
+- `BACKEND_API_KEY` / `VLLM_API_KEY`: Optional bearer token added to vLLM requests when the incoming request does not already include `Authorization`.
 - `CONCURRENT_REQUESTS`: Sets how many parallel connections (and thus concurrent tasks) this HiveNode should proxy. Adjust based on your hardware resources and [Ollama configuration](https://github.com/ollama/ollama/blob/main/docs/faq.md).
 - `INFLUX_*`: (Optional) If configured, HiveNode will record logs and GPU usage metrics to InfluxDB. If not provided, it simply won’t log to Influx.
 
@@ -121,6 +136,8 @@ CONCURRENT_REQUESTS=4
 Docker-managed mode is the primary path. In this mode HiveNode will pull or reuse `ollama/ollama`, bind it to `OLLAMA_PORT`, mount `HIVE_OLLAMA_MODELS`, and internally set `OLLAMA_URL` to that local container.
 
 If you prefer to manage Ollama yourself, set `OLLAMA_MODE=external` and provide `OLLAMA_URL`.
+
+For vLLM, run the vLLM OpenAI-compatible server separately and set `INFERENCE_BACKEND=vllm` with `VLLM_URL` or `BACKEND_URL`. HiveNode discovers models through `GET /v1/models`, advertises them with `POLL-VLLM`, and proxies HiveCore's `/v1/...` requests to the configured vLLM server.
 
 If you want to prepare an Ollama host manually, or experiment with multiple instances and GPU layouts, you can use the provided `setup_ollama.sh` helper script.
 
@@ -149,12 +166,13 @@ cargo build --release
 
 # 6. How it Works
 1. **Authentication**
-    - On startup, HiveNode initializes Ollama according to `OLLAMA_MODE`.
+    - On startup, HiveNode initializes the selected inference backend.
     - Each of the `CONCURRENT_REQUESTS` worker threads tries to authenticate to HiveCore using the key in `HIVE_KEY`.
     - Upon successful auth, HiveNode advertises its versions and its supported models to HiveCore. 
 2. **Polling & Proxying**
     - HiveNode periodically polls HiveCore for incoming tasks. If HiveCore’s queue has work for a given model, it dispatches it to the node.
-    - HiveNode forwards the request to `OLLAMA_URL` for local inference (via the Ollama HTTP API), then streams the response back to HiveCore.
+    - HiveNode forwards the request to the configured backend URL for local inference, then streams the response back to HiveCore.
+    - New Ollama workers send `POLL-OLLAMA`; vLLM workers send `POLL-VLLM`. Legacy workers may still send plain `POLL`.
 3. **Reconnection & Control**
     - If the connection drops or an error occurs, HiveNode waits briefly, then reconnects.
     - HiveCore can issue commands like `REBOOT` or `SHUTDOWN`, which HiveNode listens for in the incoming messages.

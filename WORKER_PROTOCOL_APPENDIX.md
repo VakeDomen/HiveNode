@@ -51,20 +51,40 @@ HiveNode uses two polling formats.
 Optimized polling:
 
 ```text
-POLL - HIVE\r\n
+POLL-OLLAMA - HIVE\r\n
+```
+
+Optimized vLLM polling:
+
+```text
+POLL-VLLM - HIVE\r\n
 ```
 
 Explicit model-target polling:
 
 ```text
-POLL <model_target> HIVE\r\n
+POLL-OLLAMA <model_target> HIVE\r\n
+```
+
+Explicit vLLM model-target polling:
+
+```text
+POLL-VLLM <model_target> HIVE\r\n
 ```
 
 Example:
 
 ```text
-POLL llama3.2:latest;deepseek-r1:8b HIVE\r\n
+POLL-OLLAMA llama3.2:latest;deepseek-r1:8b HIVE\r\n
 ```
+
+vLLM example:
+
+```text
+POLL-VLLM Qwen/Qwen3-8B;meta-llama/Llama-3.1-8B-Instruct HIVE\r\n
+```
+
+Legacy HiveNode versions send plain `POLL` with the same payload shape. HiveCore can treat plain `POLL` as an older Ollama worker.
 
 ## Inbound Hive Control Messages
 

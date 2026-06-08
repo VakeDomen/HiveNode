@@ -16,3 +16,5 @@ Cargo.lock
 
 resources
 ollama-server-logs
+.codex
+test.sh

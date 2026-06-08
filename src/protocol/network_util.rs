@@ -3,31 +3,28 @@ use influxdb2::models::DataPoint;
 use log::{error, info, warn};
 use reqwest::blocking::Client;
 use reqwest::blocking::Response;
-use reqwest::header::{HeaderName, HeaderValue};
 use std::env;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::thread;
-use std::time::Duration;
 use tokio::runtime::Runtime;
 
 use crate::logging::log_influx;
 use crate::messages::proxy_message::ProxyMessage;
-use crate::models::tags::Tags;
-use crate::models::tags::Version;
 use crate::protocol::state::{notify_refresh, set_node_name};
 
+use super::backend::{backend_version, get_backend, make_backend_request, InferenceBackend};
 use super::docker::{is_docker_managed, upgrade_ollama_docker};
 use super::state::set_reboot;
 use super::state::set_shutdown;
 
 pub fn authenticate(stream: &mut TcpStream, nonce: u64, client: &Client) -> Result<()> {
     let key = env::var("HIVE_KEY").expect("HIVE_KEY");
-    let ollama_version = get_ollama_version(client);
+    let backend_version = backend_version(client);
     let node_version: &str = env!("CARGO_PKG_VERSION");
 
     // Create an HTTP client
-    let auth_request = format!("AUTH {key};{nonce};{node_version};{ollama_version} HIVE\r\n");
+    let auth_request = format!("AUTH {key};{nonce};{node_version};{backend_version} HIVE\r\n");
     stream.write_all(auth_request.as_bytes())?;
     stream.flush()?;
 
@@ -52,33 +49,16 @@ pub fn poll(
     // so that the core has the list to work with
     // However, polling with X;Y;Z will set the sequence of models in
     // which the work is polled
+    let poll_command = get_backend()?.poll_command();
     let poll_target = if *optimized_polling_sequence {
-        format!("POLL - HIVE\r\n")
+        format!("{poll_command} - HIVE\r\n")
     } else {
-        format!("POLL {model_name} HIVE\r\n")
+        format!("{poll_command} {model_name} HIVE\r\n")
     };
 
     stream.write_all(poll_target.as_bytes())?;
     stream.flush()?;
     Ok(())
-}
-
-pub fn get_tags(client: &Client) -> Result<Tags> {
-    let req = ProxyMessage::new_http_get("/api/tags");
-    let resp = make_ollama_request(&req, client)?;
-    Ok(Tags::try_from(resp)?)
-}
-
-pub fn get_ollama_version(client: &Client) -> String {
-    let req = ProxyMessage::new_http_get("/api/version");
-    let resp = match make_ollama_request(&req, client) {
-        Ok(resp) => resp,
-        Err(_) => return "Unknown".to_string(),
-    };
-    match Version::try_from(resp) {
-        Ok(v) => v.version,
-        Err(_) => "Unknown".to_string(),
-    }
 }
 
 pub fn handle_control_request(request: &ProxyMessage, stream: &mut TcpStream) -> Result<bool> {
@@ -111,6 +91,16 @@ pub fn handle_control_request(request: &ProxyMessage, stream: &mut TcpStream) ->
 }
 
 fn handle_ollama_update(stream: &mut TcpStream) -> Result<()> {
+    if get_backend()? != InferenceBackend::Ollama {
+        warn!("Ignoring UPDATE_OLLAMA because HiveNode is using a vLLM backend.");
+        write_http_response(
+            stream,
+            "409 Conflict",
+            "UPDATE_OLLAMA is only available when INFERENCE_BACKEND=ollama.\n",
+        )?;
+        return Ok(());
+    }
+
     if !is_docker_managed() {
         warn!("Ignoring UPDATE_OLLAMA because HiveNode is using an external Ollama instance.");
         write_http_response(
@@ -191,18 +181,21 @@ pub fn stream_response_to_proxy(
     stream: &mut TcpStream,
     client: &Client,
 ) -> Result<bool> {
-    info!("Recieved Ollama request. {:#?}", request);
-    let response = make_ollama_request(&request, client)?;
+    let backend = get_backend()?;
+    info!("Recieved {} request. {:#?}", backend.label(), request);
+    let response = make_backend_request(&request, client)?;
     let response_code = response.status().as_u16();
     let mut influx_stream: Vec<u8> = vec![];
 
     match response_code {
         200 => info!(
-            "Ollama responded with: {} | Streaming back response...",
+            "{} responded with: {} | Streaming back response...",
+            backend.label(),
             response.status()
         ),
         _ => warn!(
-            "Ollama responded with: {} | Streaming back response...",
+            "{} responded with: {} | Streaming back response...",
+            backend.label(),
             response.status()
         ),
     };
@@ -293,39 +286,6 @@ fn write_http_status_line(
     Ok(())
 }
 
-fn make_ollama_request(request: &ProxyMessage, client: &Client) -> Result<Response> {
-    let ollama_base_url = env::var("OLLAMA_URL").expect("OLLAMA_URL");
-    let request_target = format!("{ollama_base_url}{}", request.uri);
-
-    if request.protocol.eq("HIVE") {
-        return Err(anyhow!("Can't make HIVE requests to Ollama."));
-    }
-
-    let mut request_builder = client.request(request.method.parse().unwrap(), request_target);
-
-    // Exclude certain headers when forwarding
-    for (key, value) in request.headers.iter() {
-        let key_lower = key.to_ascii_lowercase();
-        if key_lower != "host" && key_lower != "content-length" {
-            if let (Ok(header_name), Ok(header_value)) = (
-                HeaderName::from_bytes(key.as_bytes()),
-                HeaderValue::from_str(value),
-            ) {
-                request_builder = request_builder.header(header_name, header_value);
-            }
-        }
-    }
-    // Set body
-    if !request.body.is_empty() {
-        request_builder = request_builder.body(request.body.to_string());
-    }
-
-    // Send the request and get the response
-    Ok(request_builder
-        .timeout(Duration::from_secs(60 * 30))
-        .send()?)
-}
-
 /// Writes to both streams simultaneously. Exists to reduce code duplication.
 fn write_to_both_streams(tcp: &mut TcpStream, second: &mut Vec<u8>, data: &[u8]) -> Result<()> {
     tcp.write_all(data)?;
@@ -341,9 +301,13 @@ fn remove_newlines(input: &str) -> String {
 fn send_success_influx_with_req(req: &ProxyMessage, stream: Vec<u8>, response_code: u16) {
     let data_as_string = String::from_utf8(stream).unwrap_or_else(|_| "Invalid UTF-8".to_string());
     let cleaned_data = remove_newlines(&data_as_string);
+    let backend = get_backend()
+        .map(|backend| backend.label())
+        .unwrap_or("unknown");
 
     // Build data point without a client-side timestamp, so InfluxDB sets it automatically.
     let data_point = DataPoint::builder("ollama")
+        .tag("backend", backend)
         .tag("model", req.extract_model().unwrap_or("None".to_string()))
         .tag("protocol", req.protocol.clone())
         .tag("method", req.method.clone())
@@ -358,8 +322,12 @@ fn send_success_influx_with_req(req: &ProxyMessage, stream: Vec<u8>, response_co
 fn send_err_influx_with_req(req: &ProxyMessage, stream: Vec<u8>, err: &String) {
     let data_as_string = String::from_utf8(stream).unwrap_or_else(|_| "Invalid UTF-8".to_string());
     let cleaned_data = remove_newlines(&data_as_string);
+    let backend = get_backend()
+        .map(|backend| backend.label())
+        .unwrap_or("unknown");
 
     let data_point = DataPoint::builder("ollama")
+        .tag("backend", backend)
         .tag("protocol", req.protocol.clone())
         .tag("method", req.method.clone())
         .tag("uri", req.uri.clone())

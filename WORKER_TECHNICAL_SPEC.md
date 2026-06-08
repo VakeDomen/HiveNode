@@ -79,6 +79,11 @@ Core connection:
 - `HIVE_KEY`
 - `CONCURRENT_REQUESTS`
 
+Backend selection:
+
+- `INFERENCE_BACKEND=ollama` or unset
+- `INFERENCE_BACKEND=vllm`
+
 Docker-managed Ollama mode:
 
 - `OLLAMA_MODE=docker` or unset
@@ -90,6 +95,11 @@ External Ollama mode:
 - `OLLAMA_MODE=external`
 - `OLLAMA_URL`
 
+External vLLM mode:
+
+- `VLLM_URL` or `BACKEND_URL`
+- optional `VLLM_API_KEY` or `BACKEND_API_KEY`
+
 Optional:
 
 - `GPU_PASSTHROUGH`
@@ -97,14 +107,21 @@ Optional:
 - `INFLUX_ORG`
 - `INFLUX_TOKEN`
 
-### Ollama Mode Resolution
+### Backend and Ollama Mode Resolution
+
+`INFERENCE_BACKEND` is parsed into:
+
+- `ollama`
+- `vllm`
+
+Unset defaults to `ollama`.
 
 `OLLAMA_MODE` is parsed into:
 
 - `docker`
 - `external`
 
-Unset defaults to `docker`.
+`OLLAMA_MODE` only applies when `INFERENCE_BACKEND` is `ollama`. Unset defaults to `docker`.
 
 Invalid values are rejected at startup.
 
@@ -191,19 +208,33 @@ Once authenticated, each thread enters a loop:
 Polling payload format:
 
 ```text
-POLL - HIVE\r\n
+POLL-OLLAMA - HIVE\r\n
+```
+
+or, for vLLM workers:
+
+```text
+POLL-VLLM - HIVE\r\n
 ```
 
 or
 
 ```text
-POLL <model_target> HIVE\r\n
+POLL-OLLAMA <model_target> HIVE\r\n
+```
+
+or, for vLLM workers:
+
+```text
+POLL-VLLM <model_target> HIVE\r\n
 ```
 
 Polling behavior:
 
 - After a model refresh, optimized polling is disabled for one iteration.
-- Otherwise HiveNode sends `POLL - HIVE`, which tells HiveCore to reuse the last advertised model set and optimize ordering.
+- Otherwise HiveNode sends `POLL-OLLAMA - HIVE` or `POLL-VLLM - HIVE`, which tells HiveCore to reuse the last advertised model set and optimize ordering.
+- Legacy HiveNode versions send plain `POLL`; HiveCore can treat plain `POLL` as an older Ollama worker.
+- vLLM workers use the same model-target and optimized semantics, but send `POLL-VLLM` so HiveCore can route OpenAI-compatible `/v1/...` requests to them.
 
 ## Message Framing and Parsing
 

@@ -2,8 +2,8 @@ use dotenv::dotenv;
 use log::{error, warn};
 use logging::logger::init_logging;
 use logging::setup_influx_logging;
+use protocol::backend::{configure_backend_runtime, configure_backend_runtime_blocking};
 use protocol::connection::run_protocol;
-use protocol::docker::{configure_ollama_runtime, configure_ollama_runtime_blocking};
 use protocol::state::{get_shutdown, set_reboot};
 use std::thread::{sleep, spawn};
 use std::time::Duration;
@@ -21,8 +21,8 @@ async fn main() -> anyhow::Result<()> {
     let _ = dotenv();
     let _ = setup_influx_logging(Handle::current());
 
-    // Initialize Ollama according to the configured mode.
-    configure_ollama_runtime().await?;
+    // Initialize the selected inference backend.
+    configure_backend_runtime().await?;
 
     let concurrent = std::env::var("CONCURRENT_REQUESTS")
         .expect("CONCURRENT_REQUESTS")
@@ -33,8 +33,8 @@ async fn main() -> anyhow::Result<()> {
     for _ in 0..concurrent {
         let movable_nonce = nonce;
         handles.push(spawn(move || loop {
-            if let Err(e) = configure_ollama_runtime_blocking() {
-                error!("Failed to ensure Ollama runtime before reconnect: {}", e);
+            if let Err(e) = configure_backend_runtime_blocking() {
+                error!("Failed to ensure inference backend before reconnect: {}", e);
                 warn!("Waiting {}s before reconnecting", reconnect_secs);
                 sleep(Duration::from_secs(reconnect_secs));
                 continue;

@@ -7,7 +7,7 @@ use reqwest::blocking::Client;
 
 use crate::models::poller::Poller;
 
-use super::network_util::get_tags;
+use super::backend::discover_models;
 
 lazy_static! {
     static ref LAST_REFRESH: Arc<RwLock<DateTime<Utc>>> = Arc::new(RwLock::new(Utc::now()));
@@ -61,7 +61,7 @@ pub fn refresh_poll_models(
     local_last_refresh: &mut DateTime<Utc>,
     models: &mut String,
 ) -> Result<()> {
-    *models = (*Poller::from(get_tags(client)?).get_models_target()).to_string();
+    *models = Poller::from(discover_models(client)?).get_models_target();
     *local_last_refresh = get_last_refresh();
     Ok(())
 }
