@@ -100,7 +100,7 @@ pub fn make_backend_request(request: &ProxyMessage, client: &Client) -> Result<R
 
     for (key, value) in request.headers.iter() {
         let key_lower = key.to_ascii_lowercase();
-        if key_lower != "host" && key_lower != "content-length" {
+        if should_forward_header(&key_lower) {
             if let (Ok(header_name), Ok(header_value)) = (
                 HeaderName::from_bytes(key.as_bytes()),
                 HeaderValue::from_str(value),
@@ -110,12 +110,7 @@ pub fn make_backend_request(request: &ProxyMessage, client: &Client) -> Result<R
         }
     }
 
-    if backend == InferenceBackend::Vllm
-        && !request
-            .headers
-            .keys()
-            .any(|key| key.eq_ignore_ascii_case("authorization"))
-    {
+    if backend == InferenceBackend::Vllm {
         if let Some(api_key) = backend_api_key() {
             request_builder = request_builder.header(AUTHORIZATION, format!("Bearer {api_key}"));
         }
@@ -189,6 +184,23 @@ fn strip_openai_version_path(url: &str) -> String {
         .to_string()
 }
 
+fn should_forward_header(header_name: &str) -> bool {
+    !matches!(
+        header_name,
+        "host"
+            | "content-length"
+            | "connection"
+            | "authorization"
+            | "api-key"
+            | "origin"
+            | "referer"
+            | "accept-encoding"
+            | "x-forwarded-for"
+            | "x-forwarded-proto"
+            | "x-real-ip"
+    ) && !header_name.starts_with("sec-fetch-")
+}
+
 fn backend_api_key() -> Option<String> {
     env::var("BACKEND_API_KEY")
         .or_else(|_| env::var("VLLM_API_KEY"))
@@ -235,5 +247,15 @@ mod tests {
             super::strip_openai_version_path("http://localhost:8000/v1/"),
             "http://localhost:8000"
         );
+    }
+
+    #[test]
+    fn filters_client_and_proxy_headers_before_backend_forwarding() {
+        assert!(!super::should_forward_header("authorization"));
+        assert!(!super::should_forward_header("api-key"));
+        assert!(!super::should_forward_header("origin"));
+        assert!(!super::should_forward_header("sec-fetch-site"));
+        assert!(super::should_forward_header("content-type"));
+        assert!(super::should_forward_header("accept"));
     }
 }
